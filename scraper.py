@@ -396,8 +396,9 @@ def filter_active_opportunities(opportunities):
 def run_scraper():
     all_opportunities = []
     
-    print("Starting scraper...")
+    print("Starting comprehensive opportunity scraper...")
     
+    # Existing sources
     print("Scraping One Young World...")
     all_opportunities.extend(scrape_oneyoungworld())
     
@@ -413,18 +414,45 @@ def run_scraper():
     print("Scraping UNDP...")
     all_opportunities.extend(scrape_undp())
     
+    # NEW SOURCES
+    print("Scraping UNDP Youth Co-Creators Council...")
+    all_opportunities.extend(scrape_undp_youth_council())
+    
+    print("Scraping AU Digital & Innovation Fellowship...")
+    all_opportunities.extend(scrape_au_digital_fellowship())
+    
+    print("Scraping EAC Student Mobility Scholarship...")
+    all_opportunities.extend(scrape_eac_scholarship())
+    
+    print("Scraping UNDP timbuktoo EdTech...")
+    all_opportunities.extend(scrape_timbuktoo_edtech())
+    
+    print("Scraping New Leaders Lab...")
+    all_opportunities.extend(scrape_new_leaders_lab())
+    
+    print("Scraping Africa CDC Fellowship...")
+    all_opportunities.extend(scrape_africa_cdc_fellowship())
+    
+    print("Scraping World Bank Fellowship...")
+    all_opportunities.extend(scrape_world_bank_fellowship())
+    
+    print("Scraping Africa Fundraising Incubator...")
+    all_opportunities.extend(scrape_fundraising_incubator())
+    
+    print("Scraping Mastercard Scholars...")
+    all_opportunities.extend(scrape_mastercard_scholars())
+    
+    print("Scraping Code for Africa...")
+    all_opportunities.extend(scrape_code_for_africa())
+    
     print(f"Total found: {len(all_opportunities)}")
     
+    # Filter for Africa
     africa_ops = filter_africa_opportunities(all_opportunities)
     print(f"After Africa filter: {len(africa_ops)}")
     
+    # Filter for active opportunities
     active_ops = filter_active_opportunities(africa_ops)
     print(f"After active filter: {len(active_ops)}")
     
     return active_ops
-
-if __name__ == '__main__':
-    data = run_scraper()
-    df = pd.DataFrame(data)
-    df.to_csv('opportunities.csv', index=False)
-    print(f"Saved {len(data)} opportunities to CSV")
