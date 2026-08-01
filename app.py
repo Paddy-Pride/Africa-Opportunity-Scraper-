@@ -63,8 +63,8 @@ else:
     
     for idx, row in df.iterrows():
         with st.container():
-            # Title as clickable link
-            st.markdown(f"**[{row['title']}]({row['link']})**")
+            # Title as clickable link to original company site
+            st.markdown(f"**[{row['title']}]({row['original_apply_link']})**")
             
             # Company
             if 'company' in row and row['company'] != 'N/A':
@@ -78,6 +78,9 @@ else:
             
             # Date and type
             st.caption(f"Date: {row['posted_date']}  |  Type: {row['type']}")
+            
+            # Show original link
+            st.caption(f"Apply Link: {row['original_apply_link']}")
             
             st.divider()
 
@@ -99,7 +102,7 @@ else:
         )
     
     with col2:
-        # PDF Download
+        # PDF Download with links
         def create_pdf(df):
             buffer = io.BytesIO()
             doc = SimpleDocTemplate(buffer, pagesize=letter)
@@ -112,30 +115,31 @@ else:
                 parent=styles['Heading1'],
                 fontSize=24,
                 textColor=colors.HexColor('#1a5276'),
-                alignment=1
+                alignment=1,
+                spaceAfter=20
             )
             elements.append(Paragraph("Africa Youth Opportunities Report", title_style))
-            elements.append(Spacer(1, 12))
             
             # Date
             date_style = ParagraphStyle(
                 'CustomDate',
                 parent=styles['Normal'],
                 fontSize=12,
-                textColor=colors.grey
+                textColor=colors.grey,
+                alignment=1,
+                spaceAfter=20
             )
             elements.append(Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y at %H:%M')}", date_style))
-            elements.append(Spacer(1, 12))
             
             # Summary
             summary_style = ParagraphStyle(
                 'CustomSummary',
                 parent=styles['Normal'],
                 fontSize=14,
-                textColor=colors.HexColor('#2c3e50')
+                textColor=colors.HexColor('#2c3e50'),
+                spaceAfter=6
             )
             elements.append(Paragraph(f"Total Opportunities: {len(df)}", summary_style))
-            elements.append(Spacer(1, 6))
             
             # Category breakdown
             type_counts = df['type'].value_counts()
@@ -143,32 +147,103 @@ else:
             elements.append(Paragraph(f"Categories: {type_text}", summary_style))
             elements.append(Spacer(1, 20))
             
-            # Table data
-            table_data = [['Title', 'Company', 'Category', 'Date']]
-            for idx, row in df.iterrows():
-                table_data.append([
-                    str(row['title'])[:50] + '...' if len(str(row['title'])) > 50 else str(row['title']),
-                    str(row.get('company', 'N/A'))[:30] + '...' if len(str(row.get('company', 'N/A'))) > 30 else str(row.get('company', 'N/A')),
-                    str(row['type']),
-                    str(row['posted_date'])[:20]
-                ])
+            # Define styles
+            header_style = ParagraphStyle(
+                'HeaderStyle',
+                parent=styles['Normal'],
+                fontSize=9,
+                textColor=colors.whitesmoke,
+                alignment=1,
+                fontName='Helvetica-Bold'
+            )
             
-            # Create table
-            table = Table(table_data, colWidths=[2.5*inch, 1.5*inch, 1*inch, 1.2*inch])
+            cell_style = ParagraphStyle(
+                'CellStyle',
+                parent=styles['Normal'],
+                fontSize=7,
+                alignment=1,
+                leading=10
+            )
+            
+            link_style = ParagraphStyle(
+                'LinkStyle',
+                parent=styles['Normal'],
+                fontSize=7,
+                textColor=colors.HexColor('#1a5276'),
+                alignment=1,
+                fontName='Helvetica'
+            )
+            
+            # Table headers with ALL columns
+            table_data = [
+                [
+                    Paragraph("Title", header_style),
+                    Paragraph("Company", header_style),
+                    Paragraph("Category", header_style),
+                    Paragraph("Date", header_style),
+                    Paragraph("Apply Link", header_style)
+                ]
+            ]
+            
+            # Add rows with links
+            for idx, row in df.iterrows():
+                # Title with link
+                title_text = str(row['title'])[:35] + '...' if len(str(row['title'])) > 35 else str(row['title'])
+                title_cell = Paragraph(f'<a href="{row["original_apply_link"]}" color="blue">{title_text}</a>', link_style)
+                
+                # Company
+                company_text = str(row.get('company', 'N/A'))[:20] + '...' if len(str(row.get('company', 'N/A'))) > 20 else str(row.get('company', 'N/A'))
+                company_cell = Paragraph(company_text, cell_style)
+                
+                # Category
+                category_cell = Paragraph(str(row['type']), cell_style)
+                
+                # Date (show full date)
+                date_text = str(row['posted_date'])
+                date_cell = Paragraph(date_text, cell_style)
+                
+                # Apply Link - FULL URL, clickable
+                link_url = str(row['original_apply_link'])
+                link_display = link_url[:40] + '...' if len(link_url) > 40 else link_url
+                link_cell = Paragraph(f'<a href="{link_url}" color="blue">{link_display}</a>', link_style)
+                
+                table_data.append([title_cell, company_cell, category_cell, date_cell, link_cell])
+            
+            # Create table with ALL columns
+            table = Table(table_data, colWidths=[1.6*inch, 1.0*inch, 0.8*inch, 1.2*inch, 1.8*inch])
             table.setStyle(TableStyle([
+                # Header
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a5276')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                ('TOPPADDING', (0, 0), (-1, 0), 6),
+                # Body
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+                ('FONTSIZE', (0, 1), (-1, -1), 7),
+                ('LEADING', (0, 1), (-1, -1), 10),
+                ('TOPPADDING', (0, 1), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f2f6')]),
             ]))
             
             elements.append(table)
+            
+            # Add note about clickable links
+            note_style = ParagraphStyle(
+                'NoteStyle',
+                parent=styles['Normal'],
+                fontSize=9,
+                textColor=colors.grey,
+                alignment=1,
+                spaceBefore=20
+            )
+            elements.append(Paragraph("Note: All titles and links are clickable in this PDF", note_style))
+            
             doc.build(elements)
             buffer.seek(0)
             return buffer
