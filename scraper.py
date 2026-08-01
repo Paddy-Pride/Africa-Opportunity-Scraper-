@@ -40,7 +40,6 @@ def extract_eligibility(text):
     if not text:
         return 'N/A'
     
-    # Look for eligibility sections
     patterns = [
         r'(?:eligibility|qualifications|requirements|criteria)[:\s]*([^.]+[.])',
         r'(?:you are eligible|you qualify|must be|should have)[:\s]*([^.]+[.])',
@@ -60,6 +59,22 @@ def extract_benefits(text):
     patterns = [
         r'(?:benefits|includes|what you get|funding|coverage)[:\s]*([^.]+[.])',
         r'(?:tuition|stipend|travel|allowance|salary)[:\s]*([^.]+[.])',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            return clean_text(match.group(1))
+    return 'N/A'
+
+def extract_organization(text):
+    """Extract organization name from text"""
+    if not text:
+        return 'N/A'
+    
+    patterns = [
+        r'(?:host|organization|institution|partner)[:\s]*([^.]+[.])',
+        r'by\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
     ]
     
     for pattern in patterns:
@@ -104,10 +119,11 @@ def scrape_oneyoungworld():
                 desc_tag = card.find(['p', 'div'], class_=re.compile(r'desc|body|excerpt', re.I))
                 description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
                 
-                # Extract details
+                # Extract all fields
                 deadline = extract_deadline(description + title)
                 eligibility = extract_eligibility(description)
                 benefits = extract_benefits(description)
+                organization = extract_organization(description)
                 
                 # Determine type
                 opp_type = 'Scholarship'
@@ -115,20 +131,22 @@ def scrape_oneyoungworld():
                     opp_type = 'Fellowship'
                 elif 'grant' in (title + description).lower():
                     opp_type = 'Grant'
+                elif 'internship' in (title + description).lower():
+                    opp_type = 'Internship'
                 
                 if title != 'N/A' and link != 'N/A':
                     opportunities.append({
-                        'title': f"One Young World: {title}",
-                        'organization': 'One Young World',
-                        'description': description[:500],
+                        'title': title,
+                        'organization': organization if organization != 'N/A' else 'One Young World',
+                        'description': description,
                         'deadline': deadline,
-                        'eligibility': eligibility[:200],
-                        'benefits': benefits[:200],
+                        'eligibility': eligibility,
+                        'benefits': benefits,
                         'link': link,
                         'source': 'One Young World',
                         'type': opp_type,
-                        'eligibility_criteria': eligibility,
-                        'funding_level': benefits
+                        'target_audience': 'African youth',
+                        'funding_level': 'Fully Funded' if 'fully' in (benefits + description).lower() else 'Varies'
                     })
     except Exception as e:
         print(f"Error scraping One Young World: {e}")
@@ -169,20 +187,21 @@ def scrape_daad():
                 deadline = extract_deadline(description + title)
                 eligibility = extract_eligibility(description)
                 benefits = extract_benefits(description)
+                organization = extract_organization(description)
                 
                 if title != 'N/A' and link != 'N/A':
                     opportunities.append({
-                        'title': f"DAAD: {title}",
-                        'organization': 'DAAD',
-                        'description': description[:500],
+                        'title': title,
+                        'organization': organization if organization != 'N/A' else 'DAAD',
+                        'description': description,
                         'deadline': deadline,
-                        'eligibility': eligibility[:200],
-                        'benefits': benefits[:200],
+                        'eligibility': eligibility,
+                        'benefits': benefits,
                         'link': link,
                         'source': 'DAAD',
                         'type': 'Scholarship',
-                        'eligibility_criteria': eligibility,
-                        'funding_level': benefits
+                        'target_audience': 'African students',
+                        'funding_level': 'Fully Funded' if 'fully' in (benefits + description).lower() else 'Partial'
                     })
     except Exception as e:
         print(f"Error scraping DAAD: {e}")
@@ -224,20 +243,21 @@ def scrape_mastercard():
                 deadline = extract_deadline(description + title)
                 eligibility = extract_eligibility(description)
                 benefits = extract_benefits(description)
+                organization = extract_organization(description)
                 
                 if title != 'N/A' and link != 'N/A':
                     opportunities.append({
-                        'title': f"Mastercard: {title}",
-                        'organization': 'Mastercard Foundation',
-                        'description': description[:500],
+                        'title': title,
+                        'organization': organization if organization != 'N/A' else 'Mastercard Foundation',
+                        'description': description,
                         'deadline': deadline,
-                        'eligibility': eligibility[:200],
-                        'benefits': benefits[:200],
+                        'eligibility': eligibility,
+                        'benefits': benefits,
                         'link': link,
                         'source': 'Mastercard Foundation',
                         'type': 'Scholarship',
-                        'eligibility_criteria': eligibility,
-                        'funding_level': benefits
+                        'target_audience': 'African youth',
+                        'funding_level': 'Fully Funded' if 'fully' in (benefits + description).lower() else 'Varies'
                     })
     except Exception as e:
         print(f"Error scraping Mastercard Foundation: {e}")
@@ -279,6 +299,7 @@ def scrape_undp():
                 deadline = extract_deadline(description + title)
                 eligibility = extract_eligibility(description)
                 benefits = extract_benefits(description)
+                organization = extract_organization(description)
                 
                 opp_type = 'Opportunity'
                 if 'grant' in (title + description).lower():
@@ -290,17 +311,17 @@ def scrape_undp():
                 
                 if title != 'N/A' and link != 'N/A':
                     opportunities.append({
-                        'title': f"UNDP: {title}",
-                        'organization': 'UNDP',
-                        'description': description[:500],
+                        'title': title,
+                        'organization': organization if organization != 'N/A' else 'UNDP',
+                        'description': description,
                         'deadline': deadline,
-                        'eligibility': eligibility[:200],
-                        'benefits': benefits[:200],
+                        'eligibility': eligibility,
+                        'benefits': benefits,
                         'link': link,
                         'source': 'UNDP',
                         'type': opp_type,
-                        'eligibility_criteria': eligibility,
-                        'funding_level': benefits
+                        'target_audience': 'African youth',
+                        'funding_level': 'Fully Funded' if 'fully' in (benefits + description).lower() else 'Varies'
                     })
     except Exception as e:
         print(f"Error scraping UNDP: {e}")
@@ -341,20 +362,21 @@ def scrape_african_union():
                 deadline = extract_deadline(description + title)
                 eligibility = extract_eligibility(description)
                 benefits = extract_benefits(description)
+                organization = extract_organization(description)
                 
                 if title != 'N/A' and link != 'N/A':
                     opportunities.append({
-                        'title': f"AU: {title}",
-                        'organization': 'African Union',
-                        'description': description[:500],
+                        'title': title,
+                        'organization': organization if organization != 'N/A' else 'African Union',
+                        'description': description,
                         'deadline': deadline,
-                        'eligibility': eligibility[:200],
-                        'benefits': benefits[:200],
+                        'eligibility': eligibility,
+                        'benefits': benefits,
                         'link': link,
                         'source': 'African Union',
                         'type': 'Fellowship',
-                        'eligibility_criteria': eligibility,
-                        'funding_level': benefits
+                        'target_audience': 'African youth',
+                        'funding_level': 'Fully Funded' if 'fully' in (benefits + description).lower() else 'Varies'
                     })
     except Exception as e:
         print(f"Error scraping African Union: {e}")
@@ -378,18 +400,20 @@ def filter_africa_opportunities(opportunities):
 
 def filter_active_opportunities(opportunities):
     """Filter for opportunities with deadlines in the future"""
-    # Simple filter - keep opportunities that have a deadline or are ongoing
     active = []
     for opp in opportunities:
         deadline = opp.get('deadline', '')
-        if deadline and 'ongoing' in deadline.lower():
-            active.append(opp)
-        elif deadline and 'vari' in deadline.lower():
-            active.append(opp)
-        elif deadline and deadline != 'N/A':
-            active.append(opp)
-        elif not deadline or deadline == 'N/A':
-            # Keep if no deadline specified (likely ongoing)
+        if deadline:
+            deadline_lower = deadline.lower()
+            if 'ongoing' in deadline_lower:
+                active.append(opp)
+            elif 'vari' in deadline_lower:
+                active.append(opp)
+            elif 'rolling' in deadline_lower:
+                active.append(opp)
+            elif deadline != 'N/A':
+                active.append(opp)
+        else:
             active.append(opp)
     return active
 
@@ -399,7 +423,6 @@ def run_scraper():
     
     print("Starting comprehensive opportunity scraper...")
     
-    # Scrape all sources
     print("Scraping One Young World...")
     all_opportunities.extend(scrape_oneyoungworld())
     
@@ -417,11 +440,9 @@ def run_scraper():
     
     print(f"Total found: {len(all_opportunities)}")
     
-    # Filter for Africa
     africa_ops = filter_africa_opportunities(all_opportunities)
     print(f"After Africa filter: {len(africa_ops)}")
     
-    # Filter for active opportunities
     active_ops = filter_active_opportunities(africa_ops)
     print(f"After active filter: {len(active_ops)}")
     
