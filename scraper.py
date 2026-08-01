@@ -28,7 +28,7 @@ def get_original_company_link(job_page_url):
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Method 1: Look for "Apply" or "Apply on company website" button
+            # Method 1: Look for "Apply" button
             apply_links = soup.find_all('a', href=True)
             for link in apply_links:
                 text = link.get_text().lower()
@@ -40,7 +40,7 @@ def get_original_company_link(job_page_url):
                     elif href.startswith('/'):
                         return 'https://www.myjobmag.co.ke' + href
             
-            # Method 2: Look for the "Apply" button with specific classes
+            # Method 2: Look for apply button with specific classes
             apply_buttons = soup.find_all('a', class_=re.compile(r'apply|btn-apply|job-apply|apply-now', re.I))
             for btn in apply_buttons:
                 href = btn.get('href', '')
@@ -49,7 +49,7 @@ def get_original_company_link(job_page_url):
                 elif href and href.startswith('/'):
                     return 'https://www.myjobmag.co.ke' + href
             
-            # Method 3: Look for iframe or external link in onclick
+            # Method 3: Look for onclick
             apply_elements = soup.find_all(['a', 'button'], onclick=True)
             for elem in apply_elements:
                 onclick = elem.get('onclick', '')
@@ -61,7 +61,7 @@ def get_original_company_link(job_page_url):
                 if match:
                     return match.group(1).strip("'\"")
             
-            # Method 4: Look for direct external links
+            # Method 4: Look for external links
             for link in soup.find_all('a', href=True):
                 href = link.get('href', '')
                 if href.startswith('http'):
@@ -110,28 +110,23 @@ def scrape_myjobmag():
                     desc_tag = listing.find('li', class_='job-desc')
                     description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
                     
-                    # Get date - try to extract both open and deadline
                     date_tag = listing.find('li', id='job-date')
                     date_text = clean_text(date_tag.get_text()) if date_tag else 'N/A'
                     
-                    # Extract company
                     company_tag = listing.find('h3')
                     company = clean_text(company_tag.get_text()) if company_tag else 'N/A'
                     
-                    # Visit job page to get more details including deadline
                     open_date = date_text
                     deadline = 'N/A'
                     full_date = date_text
                     
                     if title != 'N/A' and job_page_url != 'N/A':
                         try:
-                            # Visit job page to extract more details
                             headers2 = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
                             response2 = requests.get(job_page_url, headers=headers2, timeout=15)
                             if response2.status_code == 200:
                                 soup2 = BeautifulSoup(response2.content, 'html.parser')
                                 
-                                # Try to find deadline
                                 deadline_elements = soup2.find_all(['span', 'div', 'p'], string=re.compile(r'deadline|closing date|application deadline', re.I))
                                 for elem in deadline_elements:
                                     text = elem.get_text()
@@ -140,7 +135,6 @@ def scrape_myjobmag():
                                         deadline = clean_text(match.group(1))
                                         break
                                 
-                                # If no deadline found, try to find any date
                                 if deadline == 'N/A':
                                     date_elements = soup2.find_all(['span', 'div', 'p'], string=re.compile(r'\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}', re.I))
                                     for elem in date_elements[:3]:
@@ -149,14 +143,12 @@ def scrape_myjobmag():
                                             deadline = clean_text(text)
                                             break
                                 
-                                # Build full date string
                                 full_date = f"Open: {open_date}"
                                 if deadline != 'N/A':
                                     full_date += f" | Deadline: {deadline}"
                         except:
                             pass
                         
-                        # Get original link
                         original_link = get_original_company_link(job_page_url)
                         final_link = original_link if original_link != 'N/A' else job_page_url
                         
@@ -164,7 +156,7 @@ def scrape_myjobmag():
                             'title': title,
                             'company': company,
                             'description': description,
-                            'posted_date': full_date,  # Now contains open and deadline
+                            'posted_date': full_date,
                             'job_page_url': job_page_url,
                             'original_apply_link': final_link,
                             'source': 'MyJobMag',
@@ -177,6 +169,7 @@ def scrape_myjobmag():
             print(f"Error scraping page {page}: {e}")
             pass
     return internships
+
 def scrape_remotive():
     jobs = []
     try:
@@ -198,7 +191,7 @@ def scrape_remotive():
                     'title': job.get('title', 'N/A'),
                     'company': job.get('company_name', 'N/A'),
                     'description': desc[:500] if desc != 'N/A' else 'N/A',
-                    'posted_date': job.get('publication_date', 'N/A'),
+                    'posted_date': f"Open: {job.get('publication_date', 'N/A')}",
                     'job_page_url': original_link,
                     'original_apply_link': original_link,
                     'source': 'Remotive',
@@ -224,7 +217,7 @@ def scrape_scholarships():
             'title': 'Mastercard Foundation Scholars Program',
             'company': 'Mastercard Foundation',
             'description': 'Full scholarship for African students to study at partner universities across Africa and globally.',
-            'posted_date': 'Open: Varies by institution | Deadline: Varies by institution',
+            'posted_date': 'Open: Varies | Deadline: Varies',
             'job_page_url': 'https://mastercardfdn.org',
             'original_apply_link': 'https://mastercardfdn.org',
             'source': 'Curated',
@@ -234,7 +227,7 @@ def scrape_scholarships():
             'title': 'DAAD Scholarships for Africa',
             'company': 'DAAD',
             'description': 'Study funding for African students pursuing Masters and PhD programs in Germany.',
-            'posted_date': 'Open: Varies by program | Deadline: Varies by program',
+            'posted_date': 'Open: Varies | Deadline: Varies',
             'job_page_url': 'https://www.daad.de',
             'original_apply_link': 'https://www.daad.de',
             'source': 'Curated',
