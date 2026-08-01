@@ -58,32 +58,35 @@ else:
     if selected_type != 'All':
         df = df[df['type'] == selected_type]
 
-    # Display
+       # Display
     st.markdown(f"### Found {len(df)} Opportunities")
     
     for idx, row in df.iterrows():
         with st.container():
-            # Title as clickable link to original company site
-            st.markdown(f"**[{row['title']}]({row['original_apply_link']})**")
+            # Check if original_apply_link exists
+            link = row.get('original_apply_link', row.get('link', '#'))
+            
+            # Title as clickable link
+            st.markdown(f"**[{row['title']}]({link})**")
             
             # Company
             if 'company' in row and row['company'] != 'N/A':
                 st.caption(f"Company: {row['company']}")
             
             # Description (cleaned)
-            description = row['description']
+            description = row.get('description', 'N/A')
             if description != 'N/A' and len(description) > 300:
                 description = description[:300] + "..."
             st.caption(f"Description: {description}")
             
             # Date and type
-            st.caption(f"Date: {row['posted_date']}  |  Type: {row['type']}")
+            posted_date = row.get('posted_date', 'N/A')
+            st.caption(f"Date: {posted_date}  |  Type: {row['type']}")
             
             # Show original link
-            st.caption(f"Apply Link: {row['original_apply_link']}")
+            st.caption(f"Apply Link: {link}")
             
             st.divider()
-
     # Download buttons
     st.markdown("---")
     st.markdown("### Download Data")
