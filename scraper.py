@@ -3,7 +3,9 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import time
 import re
+import json
 from datetime import datetime
+import os
 
 def clean_text(text):
     if not text:
@@ -17,66 +19,311 @@ def clean_text(text):
     text = text.strip()
     return text if text else 'N/A'
 
-def get_original_company_link(job_page_url):
-    """
-    Visit the job board's job page and extract the original company application link
-    """
+def extract_date(text):
+    """Extract deadline from text using regex patterns"""
+    if not text:
+        return 'N/A'
+    
+    # Common date patterns
+    patterns = [
+        r'(?:deadline|closing date|application deadline|apply by)[:\s]*([^\.]+)',
+        r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4})',
+        r'(\d{1,2}/\d{1,2}/\d{4})',
+        r'(\d{4}-\d{2}-\d{2})',
+        r'(?:ends|closes)[:\s]*([^\.]+)'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            return clean_text(match.group(1))
+    
+    return 'N/A'
+
+# ============ SOURCE 1: One Young World Scholarships ============
+def scrape_oneyoungworld():
+    """Scrapes scholarships from One Young World"""
+    opportunities = []
+    url = "https://www.oneyoungworld.com/scholarships"
+    
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        response = requests.get(job_page_url, headers=headers, timeout=15)
+        response = requests.get(url, headers=headers, timeout=30)
         
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Method 1: Look for "Apply" button
-            apply_links = soup.find_all('a', href=True)
-            for link in apply_links:
-                text = link.get_text().lower()
-                href = link.get('href', '')
+            # Find scholarship cards
+            cards = soup.find_all('div', class_=re.compile(r'scholarship|card|item', re.I))
+            
+            for card in cards[:10]:
+                # Title
+                title_tag = card.find(['h2', 'h3', 'h4'])
+                title = clean_text(title_tag.get_text()) if title_tag else 'N/A'
                 
-                if ('apply' in text or 'apply' in href.lower() or 'external' in href.lower()):
-                    if href.startswith('http'):
-                        return href
-                    elif href.startswith('/'):
-                        return 'https://www.myjobmag.co.ke' + href
-            
-            # Method 2: Look for apply button with specific classes
-            apply_buttons = soup.find_all('a', class_=re.compile(r'apply|btn-apply|job-apply|apply-now', re.I))
-            for btn in apply_buttons:
-                href = btn.get('href', '')
-                if href and href.startswith('http'):
-                    return href
-                elif href and href.startswith('/'):
-                    return 'https://www.myjobmag.co.ke' + href
-            
-            # Method 3: Look for onclick
-            apply_elements = soup.find_all(['a', 'button'], onclick=True)
-            for elem in apply_elements:
-                onclick = elem.get('onclick', '')
-                match = re.search(r"window\.location=['\"]([^'\"]+)['\"]", onclick)
-                if match:
-                    return match.group(1)
+                # Link
+                link_tag = card.find('a', href=True)
+                if link_tag:
+                    href = link_tag.get('href', '')
+                    if href.startswith('/'):
+                        link = 'https://www.oneyoungworld.com' + href
+                    else:
+                        link = href
+                else:
+                    link = 'N/A'
                 
-                match = re.search(r"['\"]https?://[^'\"]+['\"]", onclick)
-                if match:
-                    return match.group(1).strip("'\"")
-            
-            # Method 4: Look for external links
-            for link in soup.find_all('a', href=True):
-                href = link.get('href', '')
-                if href.startswith('http'):
-                    if 'myjobmag' not in href.lower() and 'remotive' not in href.lower():
-                        if any(domain in href.lower() for domain in ['.com', '.org', '.io', '.co', '.uk', '.de', '.fr']):
-                            if any(keyword in href.lower() for keyword in ['apply', 'job', 'career', 'position', 'opportunity']):
-                                return href
-            
-            return 'N/A'
-        else:
-            return 'N/A'
+                # Description
+                desc_tag = card.find(['p', 'div'], class_=re.compile(r'desc|body|excerpt', re.I))
+                description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
+                
+                # Extract deadline from description
+                deadline = extract_date(description)
+                
+                if title != 'N/A' and link != 'N/A':
+                    opportunities.append({
+                        'title': f"One Young World: {title}",
+                        'company': 'One Young World',
+                        'description': description,
+                        'posted_date': f"Deadline: {deadline}" if deadline != 'N/A' else 'Ongoing',
+                        'job_page_url': link,
+                        'original_apply_link': link,
+                        'source': 'One Young World',
+                        'type': 'Scholarship'
+                    })
     except Exception as e:
-        print(f"Error getting original link from {job_page_url}: {e}")
-        return 'N/A'
+        print(f"Error scraping One Young World: {e}")
+    
+    return opportunities
 
+# ============ SOURCE 2: DAAD Scholarships ============
+def scrape_daad():
+    """Scrapes DAAD scholarships for Africa"""
+    opportunities = []
+    url = "https://www.daad.de/en/study-and-research-in-germany/scholarships/"
+    
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        response = requests.get(url, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Find scholarship entries
+            entries = soup.find_all('li', class_=re.compile(r'scholarship|item|entry', re.I))
+            
+            for entry in entries[:10]:
+                # Title
+                title_tag = entry.find('a')
+                title = clean_text(title_tag.get_text()) if title_tag else 'N/A'
+                
+                # Link
+                if title_tag and title_tag.has_attr('href'):
+                    href = title_tag.get('href', '')
+                    if href.startswith('/'):
+                        link = 'https://www.daad.de' + href
+                    else:
+                        link = href
+                else:
+                    link = 'N/A'
+                
+                # Description
+                desc_tag = entry.find('p')
+                description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
+                
+                # Extract deadline
+                deadline = extract_date(description)
+                
+                if title != 'N/A' and link != 'N/A':
+                    opportunities.append({
+                        'title': f"DAAD: {title}",
+                        'company': 'DAAD',
+                        'description': description,
+                        'posted_date': f"Deadline: {deadline}" if deadline != 'N/A' else 'Varies',
+                        'job_page_url': link,
+                        'original_apply_link': link,
+                        'source': 'DAAD',
+                        'type': 'Scholarship'
+                    })
+    except Exception as e:
+        print(f"Error scraping DAAD: {e}")
+    
+    return opportunities
+
+# ============ SOURCE 3: Mastercard Foundation ============
+def scrape_mastercard():
+    """Scrapes Mastercard Foundation opportunities"""
+    opportunities = []
+    url = "https://mastercardfdn.org/opportunities/"
+    
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        response = requests.get(url, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Find opportunity listings
+            items = soup.find_all('article', class_=re.compile(r'post|item|opportunity', re.I))
+            
+            for item in items[:10]:
+                # Title
+                title_tag = item.find(['h2', 'h3'])
+                title = clean_text(title_tag.get_text()) if title_tag else 'N/A'
+                
+                # Link
+                link_tag = item.find('a', href=True)
+                if link_tag:
+                    href = link_tag.get('href', '')
+                    if href.startswith('/'):
+                        link = 'https://mastercardfdn.org' + href
+                    else:
+                        link = href
+                else:
+                    link = 'N/A'
+                
+                # Description
+                desc_tag = item.find('p')
+                description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
+                
+                # Extract deadline
+                deadline = extract_date(description)
+                
+                if title != 'N/A' and link != 'N/A':
+                    opportunities.append({
+                        'title': f"Mastercard: {title}",
+                        'company': 'Mastercard Foundation',
+                        'description': description,
+                        'posted_date': f"Deadline: {deadline}" if deadline != 'N/A' else 'Varies',
+                        'job_page_url': link,
+                        'original_apply_link': link,
+                        'source': 'Mastercard Foundation',
+                        'type': 'Scholarship'
+                    })
+    except Exception as e:
+        print(f"Error scraping Mastercard Foundation: {e}")
+    
+    return opportunities
+
+# ============ SOURCE 4: African Union Opportunities ============
+def scrape_african_union():
+    """Scrapes African Union opportunities"""
+    opportunities = []
+    url = "https://au.int/en/opportunities"
+    
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        response = requests.get(url, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Find opportunity listings
+            items = soup.find_all('div', class_=re.compile(r'views-row|item|opportunity', re.I))
+            
+            for item in items[:10]:
+                # Title
+                title_tag = item.find('a')
+                title = clean_text(title_tag.get_text()) if title_tag else 'N/A'
+                
+                # Link
+                if title_tag and title_tag.has_attr('href'):
+                    href = title_tag.get('href', '')
+                    if href.startswith('/'):
+                        link = 'https://au.int' + href
+                    else:
+                        link = href
+                else:
+                    link = 'N/A'
+                
+                # Description
+                desc_tag = item.find('p')
+                description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
+                
+                # Extract deadline
+                deadline = extract_date(description)
+                
+                if title != 'N/A' and link != 'N/A':
+                    opportunities.append({
+                        'title': f"AU: {title}",
+                        'company': 'African Union',
+                        'description': description,
+                        'posted_date': f"Deadline: {deadline}" if deadline != 'N/A' else 'Ongoing',
+                        'job_page_url': link,
+                        'original_apply_link': link,
+                        'source': 'African Union',
+                        'type': 'Fellowship'
+                    })
+    except Exception as e:
+        print(f"Error scraping African Union: {e}")
+    
+    return opportunities
+
+# ============ SOURCE 5: UNDP Opportunities ============
+def scrape_undp():
+    """Scrapes UNDP opportunities"""
+    opportunities = []
+    url = "https://www.undp.org/opportunities"
+    
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        response = requests.get(url, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Find opportunity listings
+            items = soup.find_all('div', class_=re.compile(r'card|item|opportunity', re.I))
+            
+            for item in items[:10]:
+                # Title
+                title_tag = item.find(['h2', 'h3'])
+                title = clean_text(title_tag.get_text()) if title_tag else 'N/A'
+                
+                # Link
+                link_tag = item.find('a', href=True)
+                if link_tag:
+                    href = link_tag.get('href', '')
+                    if href.startswith('/'):
+                        link = 'https://www.undp.org' + href
+                    else:
+                        link = href
+                else:
+                    link = 'N/A'
+                
+                # Description
+                desc_tag = item.find('p')
+                description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
+                
+                # Extract deadline
+                deadline = extract_date(description)
+                
+                # Determine type
+                if 'grant' in (title + description).lower():
+                    opp_type = 'Grant'
+                elif 'fellowship' in (title + description).lower():
+                    opp_type = 'Fellowship'
+                elif 'internship' in (title + description).lower():
+                    opp_type = 'Internship'
+                else:
+                    opp_type = 'Opportunity'
+                
+                if title != 'N/A' and link != 'N/A':
+                    opportunities.append({
+                        'title': f"UNDP: {title}",
+                        'company': 'UNDP',
+                        'description': description,
+                        'posted_date': f"Deadline: {deadline}" if deadline != 'N/A' else 'Ongoing',
+                        'job_page_url': link,
+                        'original_apply_link': link,
+                        'source': 'UNDP',
+                        'type': opp_type
+                    })
+    except Exception as e:
+        print(f"Error scraping UNDP: {e}")
+    
+    return opportunities
+
+# ============ SOURCE 6: MyJobMag Internships ============
 def scrape_myjobmag():
     internships = []
     base_url = "https://www.myjobmag.co.ke"
@@ -116,60 +363,24 @@ def scrape_myjobmag():
                     company_tag = listing.find('h3')
                     company = clean_text(company_tag.get_text()) if company_tag else 'N/A'
                     
-                    open_date = date_text
-                    deadline = 'N/A'
-                    full_date = date_text
-                    
                     if title != 'N/A' and job_page_url != 'N/A':
-                        try:
-                            headers2 = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-                            response2 = requests.get(job_page_url, headers=headers2, timeout=15)
-                            if response2.status_code == 200:
-                                soup2 = BeautifulSoup(response2.content, 'html.parser')
-                                
-                                deadline_elements = soup2.find_all(['span', 'div', 'p'], string=re.compile(r'deadline|closing date|application deadline', re.I))
-                                for elem in deadline_elements:
-                                    text = elem.get_text()
-                                    match = re.search(r'(?:deadline|closing date|application deadline)[:\s]*([^\.]+)', text, re.I)
-                                    if match:
-                                        deadline = clean_text(match.group(1))
-                                        break
-                                
-                                if deadline == 'N/A':
-                                    date_elements = soup2.find_all(['span', 'div', 'p'], string=re.compile(r'\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}', re.I))
-                                    for elem in date_elements[:3]:
-                                        text = elem.get_text()
-                                        if 'deadline' in text.lower() or 'closing' in text.lower():
-                                            deadline = clean_text(text)
-                                            break
-                                
-                                full_date = f"Open: {open_date}"
-                                if deadline != 'N/A':
-                                    full_date += f" | Deadline: {deadline}"
-                        except:
-                            pass
-                        
-                        original_link = get_original_company_link(job_page_url)
-                        final_link = original_link if original_link != 'N/A' else job_page_url
-                        
                         internships.append({
                             'title': title,
                             'company': company,
                             'description': description,
-                            'posted_date': full_date,
+                            'posted_date': date_text,
                             'job_page_url': job_page_url,
-                            'original_apply_link': final_link,
+                            'original_apply_link': job_page_url,
                             'source': 'MyJobMag',
                             'type': 'Internship'
                         })
-                        
-                        time.sleep(1)
                 time.sleep(2)
         except Exception as e:
             print(f"Error scraping page {page}: {e}")
             pass
     return internships
 
+# ============ SOURCE 7: Remotive Remote Jobs ============
 def scrape_remotive():
     jobs = []
     try:
@@ -191,7 +402,7 @@ def scrape_remotive():
                     'title': job.get('title', 'N/A'),
                     'company': job.get('company_name', 'N/A'),
                     'description': desc[:500] if desc != 'N/A' else 'N/A',
-                    'posted_date': f"Open: {job.get('publication_date', 'N/A')}",
+                    'posted_date': job.get('publication_date', 'N/A'),
                     'job_page_url': original_link,
                     'original_apply_link': original_link,
                     'source': 'Remotive',
@@ -201,84 +412,12 @@ def scrape_remotive():
         print(f"Remotive API error: {e}")
     return jobs
 
-def scrape_scholarships():
-    return [
-        {
-            'title': 'AU Digital and Innovation Fellowship Cohort 3',
-            'company': 'African Union',
-            'description': '12-month immersive program for Africas top technical minds to co-develop solutions within AU institutions. Financial support and international exposure provided.',
-            'posted_date': 'Open: Ongoing | Deadline: 1 March 2026',
-            'job_page_url': 'https://au.int/en',
-            'original_apply_link': 'https://au.int/en',
-            'source': 'Curated',
-            'type': 'Fellowship'
-        },
-        {
-            'title': 'Mastercard Foundation Scholars Program',
-            'company': 'Mastercard Foundation',
-            'description': 'Full scholarship for African students to study at partner universities across Africa and globally.',
-            'posted_date': 'Open: Varies | Deadline: Varies',
-            'job_page_url': 'https://mastercardfdn.org',
-            'original_apply_link': 'https://mastercardfdn.org',
-            'source': 'Curated',
-            'type': 'Scholarship'
-        },
-        {
-            'title': 'DAAD Scholarships for Africa',
-            'company': 'DAAD',
-            'description': 'Study funding for African students pursuing Masters and PhD programs in Germany.',
-            'posted_date': 'Open: Varies | Deadline: Varies',
-            'job_page_url': 'https://www.daad.de',
-            'original_apply_link': 'https://www.daad.de',
-            'source': 'Curated',
-            'type': 'Scholarship'
-        },
-        {
-            'title': 'Yoma Youth Opportunities Platform',
-            'company': 'UNICEF and Generation Unlimited',
-            'description': 'Free platform providing access to skilling, earning, and impact opportunities for young Africans.',
-            'posted_date': 'Open: Ongoing | Deadline: Ongoing',
-            'job_page_url': 'https://yoma.world',
-            'original_apply_link': 'https://yoma.world',
-            'source': 'Curated',
-            'type': 'Various'
-        },
-        {
-            'title': 'Africa Green Growth Fellowship',
-            'company': 'AGGF',
-            'description': 'Fellowship program with stipend for African youth working on environmental and sustainability initiatives.',
-            'posted_date': 'Open: Varies | Deadline: Varies',
-            'job_page_url': 'https://www.aggf.org',
-            'original_apply_link': 'https://www.aggf.org',
-            'source': 'Curated',
-            'type': 'Fellowship'
-        },
-        {
-            'title': 'Commonwealth Scholarships',
-            'company': 'UK Government',
-            'description': 'Full funding for Masters and PhD students from Commonwealth countries including many African nations.',
-            'posted_date': 'Open: Varies | Deadline: Varies',
-            'job_page_url': 'https://cscuk.fcdo.gov.uk',
-            'original_apply_link': 'https://cscuk.fcdo.gov.uk',
-            'source': 'Curated',
-            'type': 'Scholarship'
-        },
-        {
-            'title': 'New Leaders Lab - AEYA',
-            'company': 'AEYA',
-            'description': 'Free 3-4 month leadership program focused on entrepreneurship, civic engagement, and community development.',
-            'posted_date': 'Open: Ongoing | Deadline: 19 July 2026',
-            'job_page_url': 'https://aeya.org',
-            'original_apply_link': 'https://aeya.org',
-            'source': 'Curated',
-            'type': 'Program'
-        }
-    ]
-
+# ============ FILTER & DEDUPLICATE ============
 def filter_africa_opportunities(jobs):
     keywords = ['africa', 'remote', 'worldwide', 'kenya', 'nigeria', 'ghana', 
                 'uganda', 'tanzania', 'south africa', 'rwanda', 'ethiopia', 
-                'zambia', 'zimbabwe', 'cameroon', 'senegal', 'botswana']
+                'zambia', 'zimbabwe', 'cameroon', 'senegal', 'botswana',
+                'sub-saharan', 'west africa', 'east africa']
     filtered = []
     for job in jobs:
         text = str(job).lower()
@@ -286,19 +425,56 @@ def filter_africa_opportunities(jobs):
             filtered.append(job)
     return filtered
 
+def deduplicate_opportunities(jobs):
+    """Remove duplicates based on title and company"""
+    seen = set()
+    unique = []
+    for job in jobs:
+        key = f"{job['title']}|{job['company']}"
+        if key not in seen:
+            seen.add(key)
+            unique.append(job)
+    return unique
+
+# ============ MAIN SCRAPER ============
 def run_scraper():
-    print("Starting scraper...")
-    print("Scraping MyJobMag and extracting original company links...")
-    internships = scrape_myjobmag()
-    print(f"Found {len(internships)} internships with original links")
-    remote_jobs = scrape_remotive()
-    print(f"Found {len(remote_jobs)} remote jobs")
-    curated = scrape_scholarships()
-    print(f"Loaded {len(curated)} curated opportunities")
-    all_ops = internships + remote_jobs + curated
-    africa_ops = filter_africa_opportunities(all_ops)
-    print(f"Total Africa-relevant: {len(africa_ops)}")
-    return africa_ops
+    all_opportunities = []
+    
+    print("Starting comprehensive opportunity scraper...")
+    
+    # Scrape all sources
+    print("Scraping One Young World...")
+    all_opportunities.extend(scrape_oneyoungworld())
+    
+    print("Scraping DAAD...")
+    all_opportunities.extend(scrape_daad())
+    
+    print("Scraping Mastercard Foundation...")
+    all_opportunities.extend(scrape_mastercard())
+    
+    print("Scraping African Union...")
+    all_opportunities.extend(scrape_african_union())
+    
+    print("Scraping UNDP...")
+    all_opportunities.extend(scrape_undp())
+    
+    print("Scraping MyJobMag...")
+    all_opportunities.extend(scrape_myjobmag())
+    
+    print("Scraping Remotive...")
+    all_opportunities.extend(scrape_remotive())
+    
+    print(f"Total found: {len(all_opportunities)}")
+    
+    # Filter for Africa
+    africa_ops = filter_africa_opportunities(all_opportunities)
+    print(f"After Africa filter: {len(africa_ops)}")
+    
+    # Deduplicate
+    unique_ops = deduplicate_opportunities(africa_ops)
+    print(f"After deduplication: {len(unique_ops)}")
+    
+    return unique_ops
 
 if __name__ == '__main__':
     data = run_scraper()
