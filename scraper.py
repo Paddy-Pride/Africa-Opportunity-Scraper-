@@ -110,13 +110,53 @@ def scrape_myjobmag():
                     desc_tag = listing.find('li', class_='job-desc')
                     description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
                     
+                    # Get date - try to extract both open and deadline
                     date_tag = listing.find('li', id='job-date')
-                    posted_date = clean_text(date_tag.get_text()) if date_tag else 'N/A'
+                    date_text = clean_text(date_tag.get_text()) if date_tag else 'N/A'
                     
+                    # Extract company
                     company_tag = listing.find('h3')
                     company = clean_text(company_tag.get_text()) if company_tag else 'N/A'
                     
+                    # Visit job page to get more details including deadline
+                    open_date = date_text
+                    deadline = 'N/A'
+                    full_date = date_text
+                    
                     if title != 'N/A' and job_page_url != 'N/A':
+                        try:
+                            # Visit job page to extract more details
+                            headers2 = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                            response2 = requests.get(job_page_url, headers=headers2, timeout=15)
+                            if response2.status_code == 200:
+                                soup2 = BeautifulSoup(response2.content, 'html.parser')
+                                
+                                # Try to find deadline
+                                deadline_elements = soup2.find_all(['span', 'div', 'p'], string=re.compile(r'deadline|closing date|application deadline', re.I))
+                                for elem in deadline_elements:
+                                    text = elem.get_text()
+                                    match = re.search(r'(?:deadline|closing date|application deadline)[:\s]*([^\.]+)', text, re.I)
+                                    if match:
+                                        deadline = clean_text(match.group(1))
+                                        break
+                                
+                                # If no deadline found, try to find any date
+                                if deadline == 'N/A':
+                                    date_elements = soup2.find_all(['span', 'div', 'p'], string=re.compile(r'\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}', re.I))
+                                    for elem in date_elements[:3]:
+                                        text = elem.get_text()
+                                        if 'deadline' in text.lower() or 'closing' in text.lower():
+                                            deadline = clean_text(text)
+                                            break
+                                
+                                # Build full date string
+                                full_date = f"Open: {open_date}"
+                                if deadline != 'N/A':
+                                    full_date += f" | Deadline: {deadline}"
+                        except:
+                            pass
+                        
+                        # Get original link
                         original_link = get_original_company_link(job_page_url)
                         final_link = original_link if original_link != 'N/A' else job_page_url
                         
@@ -124,7 +164,7 @@ def scrape_myjobmag():
                             'title': title,
                             'company': company,
                             'description': description,
-                            'posted_date': posted_date,
+                            'posted_date': full_date,  # Now contains open and deadline
                             'job_page_url': job_page_url,
                             'original_apply_link': final_link,
                             'source': 'MyJobMag',
@@ -137,7 +177,6 @@ def scrape_myjobmag():
             print(f"Error scraping page {page}: {e}")
             pass
     return internships
-
 def scrape_remotive():
     jobs = []
     try:
