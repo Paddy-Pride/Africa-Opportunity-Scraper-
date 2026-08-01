@@ -111,6 +111,32 @@ else:
             doc = SimpleDocTemplate(buffer, pagesize=letter)
             styles = getSampleStyleSheet()
             elements = []
+
+            # Add rows with links - use get() to avoid KeyError
+   for idx, row in df.iterrows():
+    # Get link safely
+    link_url = row.get('original_apply_link', row.get('link', '#'))
+    
+    # Title with link
+    title_text = str(row['title'])[:35] + '...' if len(str(row['title'])) > 35 else str(row['title'])
+    title_cell = Paragraph(f'<a href="{link_url}" color="blue">{title_text}</a>', link_style)
+    
+    # Company
+    company_text = str(row.get('company', 'N/A'))[:20] + '...' if len(str(row.get('company', 'N/A'))) > 20 else str(row.get('company', 'N/A'))
+    company_cell = Paragraph(company_text, cell_style)
+    
+    # Category
+    category_cell = Paragraph(str(row['type']), cell_style)
+    
+    # Date
+    date_text = str(row.get('posted_date', 'N/A'))
+    date_cell = Paragraph(date_text, cell_style)
+    
+    # Apply Link
+    link_display = link_url[:40] + '...' if len(link_url) > 40 else link_url
+    link_cell = Paragraph(f'<a href="{link_url}" color="blue">{link_display}</a>', link_style)
+    
+    table_data.append([title_cell, company_cell, category_cell, date_cell, link_cell])
             
             # Title
             title_style = ParagraphStyle(
