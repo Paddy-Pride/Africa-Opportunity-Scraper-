@@ -9,18 +9,23 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
-st.set_page_config(page_title="Africa Opportunities", layout="wide")
+st.set_page_config(page_title="FutureFinder Africa", layout="wide")
 
-st.title("Africa Youth Opportunity Finder")
+st.title("FutureFinder Africa")
+st.subheader("Verified Opportunities for African Youth")
 st.markdown("---")
 
 # Sidebar
 st.sidebar.markdown("About")
-st.sidebar.info("Automatically finds scholarships, jobs, grants, fellowships for African youth")
+st.sidebar.info("Automatically finds and verifies scholarships, jobs, grants, fellowships for African youth")
 st.sidebar.markdown("Sources")
-st.sidebar.text("MyJobMag Kenya")
-st.sidebar.text("Remotive API")
-st.sidebar.text("Curated Programs")
+st.sidebar.text("One Young World")
+st.sidebar.text("DAAD")
+st.sidebar.text("Mastercard Foundation")
+st.sidebar.text("African Union")
+st.sidebar.text("UNDP")
+st.sidebar.text("MyJobMag")
+st.sidebar.text("Remotive")
 
 # Refresh button
 if st.button("Refresh Data Now"):
@@ -40,23 +45,40 @@ if not data:
     st.warning("No opportunities found. Please try again later.")
 else:
     # Metrics
-    col1, col2, col3 = st.columns(3)
+    df = pd.DataFrame(data)
+    
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Total Opportunities", len(data))
+        st.metric("Total Opportunities", len(df))
     with col2:
-        types = pd.DataFrame(data)['type'].value_counts()
+        types = df['type'].value_counts()
         st.metric("Categories", len(types))
     with col3:
+        sources = df['source'].nunique()
+        st.metric("Sources", sources)
+    with col4:
         st.metric("Last Updated", datetime.now().strftime("%H:%M"))
+
+    # Category Breakdown
+    st.markdown("### Category Breakdown")
+    type_counts = df['type'].value_counts()
+    st.bar_chart(type_counts)
 
     # Filter
     st.markdown("### Filter by Type")
-    df = pd.DataFrame(data)
     types_list = ['All'] + list(df['type'].unique())
     selected_type = st.selectbox("Select Category", types_list)
     
     if selected_type != 'All':
         df = df[df['type'] == selected_type]
+
+    # Search
+    st.markdown("### Search Opportunities")
+    search_term = st.text_input("Search by title, company, or description")
+    if search_term:
+        df = df[df['title'].str.contains(search_term, case=False) | 
+                df['company'].str.contains(search_term, case=False) |
+                df['description'].str.contains(search_term, case=False)]
 
     # Display
     st.markdown(f"### Found {len(df)} Opportunities")
@@ -66,25 +88,23 @@ else:
             # Get link safely
             link = row.get('original_apply_link', row.get('link', '#'))
             
-            # Title as clickable link
+            # Title as clickable link with type badge
             st.markdown(f"**[{row['title']}]({link})**")
+            st.caption(f"🏷️ Type: {row['type']} | Source: {row['source']}")
             
             # Company
             if 'company' in row and row['company'] != 'N/A':
-                st.caption(f"Company: {row['company']}")
+                st.caption(f"🏢 {row['company']}")
             
             # Description (cleaned)
             description = row.get('description', 'N/A')
             if description != 'N/A' and len(description) > 300:
                 description = description[:300] + "..."
-            st.caption(f"Description: {description}")
+            st.caption(f"📝 {description}")
             
-            # Date and type
+            # Date
             posted_date = row.get('posted_date', 'N/A')
-            st.caption(f"Date: {posted_date}  |  Type: {row['type']}")
-            
-            # Show original link
-            st.caption(f"Apply Link: {link}")
+            st.caption(f"📅 {posted_date}")
             
             st.divider()
 
@@ -95,7 +115,6 @@ else:
     col1, col2 = st.columns(2)
     
     with col1:
-        # CSV Download
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="Download CSV",
@@ -106,14 +125,12 @@ else:
         )
     
     with col2:
-        # PDF Download with links
         def create_pdf(df):
             buffer = io.BytesIO()
             doc = SimpleDocTemplate(buffer, pagesize=letter)
             styles = getSampleStyleSheet()
             elements = []
             
-            # Title
             title_style = ParagraphStyle(
                 'CustomTitle',
                 parent=styles['Heading1'],
@@ -122,9 +139,8 @@ else:
                 alignment=1,
                 spaceAfter=20
             )
-            elements.append(Paragraph("Africa Youth Opportunities Report", title_style))
+            elements.append(Paragraph("FutureFinder Africa Opportunities Report", title_style))
             
-            # Date
             date_style = ParagraphStyle(
                 'CustomDate',
                 parent=styles['Normal'],
@@ -135,7 +151,6 @@ else:
             )
             elements.append(Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y at %H:%M')}", date_style))
             
-            # Summary
             summary_style = ParagraphStyle(
                 'CustomSummary',
                 parent=styles['Normal'],
@@ -145,13 +160,11 @@ else:
             )
             elements.append(Paragraph(f"Total Opportunities: {len(df)}", summary_style))
             
-            # Category breakdown
             type_counts = df['type'].value_counts()
             type_text = " | ".join([f"{k}: {v}" for k, v in type_counts.items()])
             elements.append(Paragraph(f"Categories: {type_text}", summary_style))
             elements.append(Spacer(1, 20))
             
-            # Define styles
             header_style = ParagraphStyle(
                 'HeaderStyle',
                 parent=styles['Normal'],
@@ -178,7 +191,6 @@ else:
                 fontName='Helvetica'
             )
             
-            # Table headers
             table_data = [
                 [
                     Paragraph("Title", header_style),
@@ -189,33 +201,23 @@ else:
                 ]
             ]
             
-            # Add rows with links
             for idx, row in df.iterrows():
-                # Get link safely
                 link_url = row.get('original_apply_link', row.get('link', '#'))
                 
-                # Title with link
-                title_text = str(row['title'])[:35] + '...' if len(str(row['title'])) > 35 else str(row['title'])
+                title_text = str(row['title'])[:30] + '...' if len(str(row['title'])) > 30 else str(row['title'])
                 title_cell = Paragraph(f'<a href="{link_url}" color="blue">{title_text}</a>', link_style)
                 
-                # Company
                 company_text = str(row.get('company', 'N/A'))[:20] + '...' if len(str(row.get('company', 'N/A'))) > 20 else str(row.get('company', 'N/A'))
                 company_cell = Paragraph(company_text, cell_style)
                 
-                # Category
                 category_cell = Paragraph(str(row['type']), cell_style)
+                date_cell = Paragraph(str(row.get('posted_date', 'N/A')), cell_style)
                 
-                # Date
-                date_text = str(row.get('posted_date', 'N/A'))
-                date_cell = Paragraph(date_text, cell_style)
-                
-                # Apply Link
                 link_display = link_url[:40] + '...' if len(link_url) > 40 else link_url
                 link_cell = Paragraph(f'<a href="{link_url}" color="blue">{link_display}</a>', link_style)
                 
                 table_data.append([title_cell, company_cell, category_cell, date_cell, link_cell])
             
-            # Create table
             table = Table(table_data, colWidths=[1.6*inch, 1.0*inch, 0.8*inch, 1.2*inch, 1.8*inch])
             table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a5276')),
@@ -237,7 +239,6 @@ else:
             
             elements.append(table)
             
-            # Add note
             note_style = ParagraphStyle(
                 'NoteStyle',
                 parent=styles['Normal'],
@@ -246,7 +247,7 @@ else:
                 alignment=1,
                 spaceBefore=20
             )
-            elements.append(Paragraph("Note: All titles and links are clickable in this PDF", note_style))
+            elements.append(Paragraph("Note: All titles and links are clickable. Opportunities are verified from official sources.", note_style))
             
             doc.build(elements)
             buffer.seek(0)
