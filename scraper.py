@@ -6,14 +6,25 @@ import re
 from datetime import datetime
 
 def clean_text(text):
+    """Remove all HTML tags and clean text"""
     if not text:
         return 'N/A'
-    # Remove HTML tags
-    text = re.sub(r'<[^>]+>', '', text)
-    # Remove extra whitespace
+    
+    # Remove all HTML tags using regex
+    text = re.sub(r'<[^>]+>', ' ', text)
+    
+    # Remove CSS style attributes
+    text = re.sub(r'style="[^"]*"', ' ', text)
+    text = re.sub(r'class="[^"]*"', ' ', text)
+    text = re.sub(r'id="[^"]*"', ' ', text)
+    
+    # Remove extra whitespace and newlines
     text = re.sub(r'\s+', ' ', text)
     text = text.replace('\r', '').replace('\n', ' ').replace('\t', ' ')
+    
+    # Remove any remaining special characters
     text = text.strip()
+    
     return text if text else 'N/A'
 
 def scrape_myjobmag():
@@ -45,9 +56,13 @@ def scrape_myjobmag():
                     else:
                         link = 'N/A'
                     
-                    # Get description
+                    # Get description - clean HTML
                     desc_tag = listing.find('li', class_='job-desc')
-                    description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
+                    if desc_tag:
+                        # Get all text including nested tags
+                        description = clean_text(desc_tag.get_text())
+                    else:
+                        description = 'N/A'
                     
                     # Get date
                     date_tag = listing.find('li', id='job-date')
@@ -81,10 +96,14 @@ def scrape_remotive():
         if response.status_code == 200:
             data = response.json()
             for job in data.get('jobs', [])[:50]:
-                # Clean description
+                # Clean description from HTML
                 desc = job.get('description', 'N/A')
-                desc = re.sub(r'<[^>]+>', '', desc)
-                desc = re.sub(r'\s+', ' ', desc).strip()
+                if desc != 'N/A':
+                    # Remove HTML tags
+                    desc = re.sub(r'<[^>]+>', ' ', desc)
+                    desc = re.sub(r'\s+', ' ', desc).strip()
+                else:
+                    desc = 'N/A'
                 
                 jobs.append({
                     'title': job.get('title', 'N/A'),
