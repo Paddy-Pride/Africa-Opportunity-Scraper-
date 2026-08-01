@@ -58,12 +58,12 @@ else:
     if selected_type != 'All':
         df = df[df['type'] == selected_type]
 
-       # Display
+    # Display
     st.markdown(f"### Found {len(df)} Opportunities")
     
     for idx, row in df.iterrows():
         with st.container():
-            # Check if original_apply_link exists
+            # Get link safely
             link = row.get('original_apply_link', row.get('link', '#'))
             
             # Title as clickable link
@@ -87,6 +87,7 @@ else:
             st.caption(f"Apply Link: {link}")
             
             st.divider()
+
     # Download buttons
     st.markdown("---")
     st.markdown("### Download Data")
@@ -111,8 +112,7 @@ else:
             doc = SimpleDocTemplate(buffer, pagesize=letter)
             styles = getSampleStyleSheet()
             elements = []
-
-         
+            
             # Title
             title_style = ParagraphStyle(
                 'CustomTitle',
@@ -178,7 +178,7 @@ else:
                 fontName='Helvetica'
             )
             
-            # Table headers with ALL columns
+            # Table headers
             table_data = [
                 [
                     Paragraph("Title", header_style),
@@ -189,36 +189,35 @@ else:
                 ]
             ]
             
-            # Add rows with links - use get() to avoid KeyError
-for idx, row in df.iterrows():
-    # Get link safely - try original_apply_link first, then link, then fallback to #
-    link_url = row.get('original_apply_link', row.get('link', '#'))
-    
-    # Title with link
-    title_text = str(row['title'])[:35] + '...' if len(str(row['title'])) > 35 else str(row['title'])
-    title_cell = Paragraph(f'<a href="{link_url}" color="blue">{title_text}</a>', link_style)
-    
-    # Company
-    company_text = str(row.get('company', 'N/A'))[:20] + '...' if len(str(row.get('company', 'N/A'))) > 20 else str(row.get('company', 'N/A'))
-    company_cell = Paragraph(company_text, cell_style)
-    
-    # Category
-    category_cell = Paragraph(str(row['type']), cell_style)
-    
-    # Date
-    date_text = str(row.get('posted_date', 'N/A'))
-    date_cell = Paragraph(date_text, cell_style)
-    
-    # Apply Link - use the same link_url
-    link_display = link_url[:40] + '...' if len(link_url) > 40 else link_url
-    link_cell = Paragraph(f'<a href="{link_url}" color="blue">{link_display}</a>', link_style)
-    
-    table_data.append([title_cell, company_cell, category_cell, date_cell, link_cell])
+            # Add rows with links
+            for idx, row in df.iterrows():
+                # Get link safely
+                link_url = row.get('original_apply_link', row.get('link', '#'))
+                
+                # Title with link
+                title_text = str(row['title'])[:35] + '...' if len(str(row['title'])) > 35 else str(row['title'])
+                title_cell = Paragraph(f'<a href="{link_url}" color="blue">{title_text}</a>', link_style)
+                
+                # Company
+                company_text = str(row.get('company', 'N/A'))[:20] + '...' if len(str(row.get('company', 'N/A'))) > 20 else str(row.get('company', 'N/A'))
+                company_cell = Paragraph(company_text, cell_style)
+                
+                # Category
+                category_cell = Paragraph(str(row['type']), cell_style)
+                
+                # Date
+                date_text = str(row.get('posted_date', 'N/A'))
+                date_cell = Paragraph(date_text, cell_style)
+                
+                # Apply Link
+                link_display = link_url[:40] + '...' if len(link_url) > 40 else link_url
+                link_cell = Paragraph(f'<a href="{link_url}" color="blue">{link_display}</a>', link_style)
+                
+                table_data.append([title_cell, company_cell, category_cell, date_cell, link_cell])
             
-            # Create table with ALL columns
+            # Create table
             table = Table(table_data, colWidths=[1.6*inch, 1.0*inch, 0.8*inch, 1.2*inch, 1.8*inch])
             table.setStyle(TableStyle([
-                # Header
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a5276')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -227,7 +226,6 @@ for idx, row in df.iterrows():
                 ('FONTSIZE', (0, 0), (-1, 0), 9),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
                 ('TOPPADDING', (0, 0), (-1, 0), 6),
-                # Body
                 ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
                 ('FONTSIZE', (0, 1), (-1, -1), 7),
@@ -239,7 +237,7 @@ for idx, row in df.iterrows():
             
             elements.append(table)
             
-            # Add note about clickable links
+            # Add note
             note_style = ParagraphStyle(
                 'NoteStyle',
                 parent=styles['Normal'],
