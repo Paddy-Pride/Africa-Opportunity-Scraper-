@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from scraper import run_scraper
 from datetime import datetime
-import time
 import io
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -12,17 +11,19 @@ from reportlab.lib.units import inch
 
 st.set_page_config(page_title="Africa Opportunities", layout="wide")
 
-st.title("🇺🇬 Africa Youth Opportunity Finder")
+st.title("Africa Youth Opportunity Finder")
 st.markdown("---")
 
 # Sidebar
-st.sidebar.markdown("## 🔍 About")
+st.sidebar.markdown("About")
 st.sidebar.info("Automatically finds scholarships, jobs, grants, fellowships for African youth")
-st.sidebar.markdown("### Sources")
-st.sidebar.text("• MyJobMag Kenya\n• Remotive API\n• Curated Programs")
+st.sidebar.markdown("Sources")
+st.sidebar.text("MyJobMag Kenya")
+st.sidebar.text("Remotive API")
+st.sidebar.text("Curated Programs")
 
 # Refresh button
-if st.button("🔄 Refresh Data Now"):
+if st.button("Refresh Data Now"):
     st.cache_data.clear()
     st.rerun()
 
@@ -62,21 +63,27 @@ else:
     
     for idx, row in df.iterrows():
         with st.container():
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.markdown(f"**{row['title']}**")
-                if 'company' in row and row['company'] != 'N/A':
-                    st.caption(f"🏢 {row['company']}")
-                st.caption(f"📝 {row['description'][:200]}...")
-                st.caption(f"📅 {row['posted_date']}")
-            with col2:
-                st.link_button("🔗 Apply", row['link'])
-                st.caption(f"🏷️ {row['type']}")
+            # Title as clickable link
+            st.markdown(f"**[{row['title']}]({row['link']})**")
+            
+            # Company
+            if 'company' in row and row['company'] != 'N/A':
+                st.caption(f"Company: {row['company']}")
+            
+            # Description (cleaned)
+            description = row['description']
+            if description != 'N/A' and len(description) > 300:
+                description = description[:300] + "..."
+            st.caption(f"Description: {description}")
+            
+            # Date and type
+            st.caption(f"Date: {row['posted_date']}  |  Type: {row['type']}")
+            
             st.divider()
 
     # Download buttons
     st.markdown("---")
-    st.markdown("### 📥 Download Data")
+    st.markdown("### Download Data")
     
     col1, col2 = st.columns(2)
     
@@ -84,7 +91,7 @@ else:
         # CSV Download
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📊 Download CSV",
+            label="Download CSV",
             data=csv,
             file_name=f"opportunities_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv",
@@ -137,22 +144,21 @@ else:
             elements.append(Spacer(1, 20))
             
             # Table data
-            table_data = [['#', 'Title', 'Category', 'Date', 'Link']]
-            for i, (idx, row) in enumerate(df.iterrows(), 1):
+            table_data = [['Title', 'Company', 'Category', 'Date']]
+            for idx, row in df.iterrows():
                 table_data.append([
-                    str(i),
-                    row['title'][:60] + '...' if len(str(row['title'])) > 60 else str(row['title']),
+                    str(row['title'])[:50] + '...' if len(str(row['title'])) > 50 else str(row['title']),
+                    str(row.get('company', 'N/A'))[:30] + '...' if len(str(row.get('company', 'N/A'))) > 30 else str(row.get('company', 'N/A')),
                     str(row['type']),
-                    str(row['posted_date'])[:20],
-                    str(row['link'])[:40] + '...' if len(str(row['link'])) > 40 else str(row['link'])
+                    str(row['posted_date'])[:20]
                 ])
             
             # Create table
-            table = Table(table_data, colWidths=[0.5*inch, 2.5*inch, 0.8*inch, 1.2*inch, 1.5*inch])
+            table = Table(table_data, colWidths=[2.5*inch, 1.5*inch, 1*inch, 1.2*inch])
             table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a5276')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0, 0), (-1, 0), 10),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
@@ -169,7 +175,7 @@ else:
         
         pdf_buffer = create_pdf(df)
         st.download_button(
-            label="📄 Download PDF Report",
+            label="Download PDF Report",
             data=pdf_buffer,
             file_name=f"opportunities_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
             mime="application/pdf",
