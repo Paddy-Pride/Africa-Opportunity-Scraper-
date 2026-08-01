@@ -112,32 +112,7 @@ else:
             styles = getSampleStyleSheet()
             elements = []
 
-            # Add rows with links - use get() to avoid KeyError
-   for idx, row in df.iterrows():
-    # Get link safely
-    link_url = row.get('original_apply_link', row.get('link', '#'))
-    
-    # Title with link
-    title_text = str(row['title'])[:35] + '...' if len(str(row['title'])) > 35 else str(row['title'])
-    title_cell = Paragraph(f'<a href="{link_url}" color="blue">{title_text}</a>', link_style)
-    
-    # Company
-    company_text = str(row.get('company', 'N/A'))[:20] + '...' if len(str(row.get('company', 'N/A'))) > 20 else str(row.get('company', 'N/A'))
-    company_cell = Paragraph(company_text, cell_style)
-    
-    # Category
-    category_cell = Paragraph(str(row['type']), cell_style)
-    
-    # Date
-    date_text = str(row.get('posted_date', 'N/A'))
-    date_cell = Paragraph(date_text, cell_style)
-    
-    # Apply Link
-    link_display = link_url[:40] + '...' if len(link_url) > 40 else link_url
-    link_cell = Paragraph(f'<a href="{link_url}" color="blue">{link_display}</a>', link_style)
-    
-    table_data.append([title_cell, company_cell, category_cell, date_cell, link_cell])
-            
+         
             # Title
             title_style = ParagraphStyle(
                 'CustomTitle',
@@ -214,29 +189,31 @@ else:
                 ]
             ]
             
-            # Add rows with links
-            for idx, row in df.iterrows():
-                # Title with link
-                title_text = str(row['title'])[:35] + '...' if len(str(row['title'])) > 35 else str(row['title'])
-                title_cell = Paragraph(f'<a href="{row["original_apply_link"]}" color="blue">{title_text}</a>', link_style)
-                
-                # Company
-                company_text = str(row.get('company', 'N/A'))[:20] + '...' if len(str(row.get('company', 'N/A'))) > 20 else str(row.get('company', 'N/A'))
-                company_cell = Paragraph(company_text, cell_style)
-                
-                # Category
-                category_cell = Paragraph(str(row['type']), cell_style)
-                
-                # Date (show full date)
-                date_text = str(row['posted_date'])
-                date_cell = Paragraph(date_text, cell_style)
-                
-                # Apply Link - FULL URL, clickable
-                link_url = str(row['original_apply_link'])
-                link_display = link_url[:40] + '...' if len(link_url) > 40 else link_url
-                link_cell = Paragraph(f'<a href="{link_url}" color="blue">{link_display}</a>', link_style)
-                
-                table_data.append([title_cell, company_cell, category_cell, date_cell, link_cell])
+            # Add rows with links - use get() to avoid KeyError
+for idx, row in df.iterrows():
+    # Get link safely - try original_apply_link first, then link, then fallback to #
+    link_url = row.get('original_apply_link', row.get('link', '#'))
+    
+    # Title with link
+    title_text = str(row['title'])[:35] + '...' if len(str(row['title'])) > 35 else str(row['title'])
+    title_cell = Paragraph(f'<a href="{link_url}" color="blue">{title_text}</a>', link_style)
+    
+    # Company
+    company_text = str(row.get('company', 'N/A'))[:20] + '...' if len(str(row.get('company', 'N/A'))) > 20 else str(row.get('company', 'N/A'))
+    company_cell = Paragraph(company_text, cell_style)
+    
+    # Category
+    category_cell = Paragraph(str(row['type']), cell_style)
+    
+    # Date
+    date_text = str(row.get('posted_date', 'N/A'))
+    date_cell = Paragraph(date_text, cell_style)
+    
+    # Apply Link - use the same link_url
+    link_display = link_url[:40] + '...' if len(link_url) > 40 else link_url
+    link_cell = Paragraph(f'<a href="{link_url}" color="blue">{link_display}</a>', link_style)
+    
+    table_data.append([title_cell, company_cell, category_cell, date_cell, link_cell])
             
             # Create table with ALL columns
             table = Table(table_data, colWidths=[1.6*inch, 1.0*inch, 0.8*inch, 1.2*inch, 1.8*inch])
