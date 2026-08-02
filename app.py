@@ -1,192 +1,345 @@
-import os
-import time
 import streamlit as st
 import pandas as pd
+from scraper import scrape_sources, generate_report_text
+from io import BytesIO
+from reportlab.pdfgen import canvas
 
-from scraper import run_scraper
-from pdf_generator import generate_pdf
 
-# ---------------- CONFIG ---------------- #
+# -----------------------------------
+# PAGE CONFIG
+# -----------------------------------
 
 st.set_page_config(
-    page_title="African Youth Opportunities",
-    page_icon="🌍",
+    page_title="Opportunity Scraper AI",
+    page_icon="🔎",
     layout="wide"
 )
 
-CSV_FILE = "opportunities.csv"
-PDF_FILE = "opportunities.pdf"
 
-# Auto refresh every 12 hours
-REFRESH_HOURS = 12
+# -----------------------------------
+# TITLE
+# -----------------------------------
 
-# ---------------- FUNCTIONS ---------------- #
+st.title("🔎 Opportunity Scraper AI")
 
-def needs_refresh():
-
-    if not os.path.exists(CSV_FILE):
-        return True
-
-    age = time.time() - os.path.getmtime(CSV_FILE)
-
-    return age > REFRESH_HOURS * 3600
-
-
-@st.cache_data(show_spinner=False)
-def load_data():
-
-    return pd.read_csv(CSV_FILE)
-
-
-def refresh():
-
-    with st.spinner("Refreshing opportunities..."):
-
-        run_scraper()
-
-        generate_pdf()
-
-# ---------------- SIDEBAR ---------------- #
-
-st.sidebar.title("Opportunity Finder")
-
-if st.sidebar.button("🔄 Refresh Now"):
-
-    refresh()
-
-if needs_refresh():
-
-    refresh()
-
-# ---------------- LOAD ---------------- #
-
-if not os.path.exists(CSV_FILE):
-
-    refresh()
-
-df = load_data()
-
-# ---------------- TITLE ---------------- #
-
-st.title("🌍 African Youth Opportunities")
-
-st.write(f"**{len(df)} Active Opportunities Found**")
-
-# ---------------- SEARCH ---------------- #
-
-search = st.text_input(
-    "Search Opportunities"
+st.write(
+    """
+Find scholarships, internships, jobs, fellowships and grants 
+from different sources using AI-powered matching.
+"""
 )
 
-if search:
 
-    mask = (
-        df["title"].str.contains(search,case=False,na=False)
-        |
-        df["organization"].str.contains(search,case=False,na=False)
-        |
-        df["description"].str.contains(search,case=False,na=False)
-    )
 
-    df = df[mask]
+# -----------------------------------
+# SIDEBAR
+# -----------------------------------
 
-# ---------------- FILTERS ---------------- #
+st.sidebar.header(
+    "Scraper Settings"
+)
 
-col1,col2,col3=st.columns(3)
 
-with col1:
+urls_input = st.sidebar.text_area(
+    "Enter websites (one per line)",
+    """
+https://www.opportunitiesforafricans.com/
+"""
+)
 
-    org=st.selectbox(
-        "Organization",
-        ["All"]+sorted(df.organization.unique().tolist())
-    )
 
-with col2:
+keywords_input = st.sidebar.text_input(
+    "Your interests",
+    "computer science, AI, data science, internship"
+)
 
-    typ=st.selectbox(
-        "Type",
-        ["All"]+sorted(df.type.unique().tolist())
-    )
 
-with col3:
 
-    deadline=st.selectbox(
-        "Deadline",
-        ["All","Rolling","Closing Soon"]
-    )
+run = st.sidebar.button(
+    "🚀 Start Scraping"
+)
 
-if org!="All":
 
-    df=df[df.organization==org]
 
-if typ!="All":
+# -----------------------------------
+# SESSION STORAGE
+# -----------------------------------
 
-    df=df[df.type==typ]
+if "data" not in st.session_state:
 
-if deadline=="Rolling":
+    st.session_state.data = pd.DataFrame()
 
-    df=df[df.deadline=="Rolling"]
 
-# ---------------- DISPLAY ---------------- #
 
-for _,row in df.iterrows():
+# -----------------------------------
+# SCRAPE
+# -----------------------------------
 
-    with st.container():
+if run:
 
-        st.subheader(row["title"])
 
-        st.write(f"**Organization:** {row['organization']}")
+    websites = [
 
-        st.write(f"**Type:** {row['type']}")
+        url.strip()
 
-        st.write(f"**Deadline:** {row['deadline']}")
+        for url in urls_input.split("\n")
 
-        st.write(row["description"])
+        if url.strip()
 
-        st.markdown(
-            f"[Apply Here]({row['link']})"
+    ]
+
+
+    keywords = [
+
+        x.strip()
+
+        for x in keywords_input.split(",")
+
+    ]
+
+
+    with st.spinner(
+        "Searching opportunities..."
+    ):
+
+
+        data = scrape_sources(
+            websites
         )
 
-        st.divider()
 
-# ---------------- DOWNLOADS ---------------- #
+        if not data.empty:
 
-c1,c2=st.columns(2)
+            # Recalculate score based on user interests
 
-with c1:
+            from scraper import calculate_score
 
-    with open(CSV_FILE,"rb") as f:
 
-        st.download_button(
+            data["Score"] = data[
+                "Description"
+            ].apply(
+                lambda x:
+                calculate_score(
+                    x,
+                    keywords
+                )
+            )
 
-            "⬇ Download CSV",
 
-            f,
+            data.sort_values(
+                "Score",
+                ascending=False,
+                inplace=True
+            )
 
-            file_name="opportunities.csv",
 
-            mime="text/csv"
+        st.session_state.data = data
 
+
+
+# -----------------------------------
+# DISPLAY RESULTS
+# -----------------------------------
+
+df = st.session_state.data
+
+
+
+if not df.empty:
+
+
+    st.success(
+        f"{len(df)} opportunities found"
+    )
+
+
+    # Filters
+
+    col1,col2 = st.columns(2)
+
+
+    with col1:
+
+        category = st.selectbox(
+            "Filter category",
+            [
+                "All"
+            ]
+            +
+            sorted(
+                df["Category"]
+                .unique()
+                .tolist()
+            )
         )
 
-with c2:
 
-    with open(PDF_FILE,"rb") as f:
+    with col2:
 
-        st.download_button(
-
-            "⬇ Download PDF",
-
-            f,
-
-            file_name="opportunities.pdf",
-
-            mime="application/pdf"
-
+        search = st.text_input(
+            "Search opportunity"
         )
 
-# ---------------- FOOTER ---------------- #
 
-st.markdown("---")
 
-st.caption("Developed by Pride @ Cyber_Ninja")
+    filtered = df.copy()
+
+
+
+    if category != "All":
+
+        filtered = filtered[
+            filtered["Category"]
+            ==
+            category
+        ]
+
+
+
+    if search:
+
+        filtered = filtered[
+            filtered.apply(
+                lambda row:
+                search.lower()
+                in
+                row.astype(str)
+                .str.lower()
+                .to_string(),
+
+                axis=1
+            )
+        ]
+
+
+
+    st.dataframe(
+        filtered,
+        use_container_width=True
+    )
+
+
+
+    # -----------------------------------
+    # CSV DOWNLOAD
+    # -----------------------------------
+
+    csv = filtered.to_csv(
+        index=False
+    )
+
+
+    st.download_button(
+
+        label="⬇ Download CSV",
+
+        data=csv,
+
+        file_name=
+        "opportunities.csv",
+
+        mime=
+        "text/csv"
+
+    )
+
+
+
+    # -----------------------------------
+    # PDF GENERATION
+    # -----------------------------------
+
+    def create_pdf(data):
+
+        buffer = BytesIO()
+
+
+        pdf = canvas.Canvas(
+            buffer
+        )
+
+
+        y = 800
+
+
+        pdf.setFont(
+            "Helvetica",
+            12
+        )
+
+
+        pdf.drawString(
+            50,
+            y,
+            "Opportunity Scraper Report"
+        )
+
+
+        y -= 40
+
+
+
+        for _,row in data.iterrows():
+
+            text = (
+                f"{row['Title']} | "
+                f"{row['Category']} | "
+                f"{row['Deadline']}"
+            )
+
+
+            pdf.drawString(
+                50,
+                y,
+                text[:100]
+            )
+
+
+            y -= 20
+
+
+            if y < 50:
+
+                pdf.showPage()
+
+                y = 800
+
+
+
+        pdf.save()
+
+
+        buffer.seek(0)
+
+
+        return buffer
+
+
+
+    pdf_file = create_pdf(
+        filtered
+    )
+
+
+
+    st.download_button(
+
+        label="📄 Download PDF Report",
+
+        data=pdf_file,
+
+        file_name=
+        "opportunity_report.pdf",
+
+        mime=
+        "application/pdf"
+
+    )
+
+
+
+else:
+
+    st.info(
+        "Enter websites and click Start Scraping"
+    )
