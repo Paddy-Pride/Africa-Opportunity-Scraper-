@@ -1,298 +1,420 @@
 import requests
-import feedparser
-import pandas as pd
 from bs4 import BeautifulSoup
+import pandas as pd
+import re
 from datetime import datetime
-from dateutil.parser import parse
-import concurrent.futures
+
+
+# ---------------------------------------
+# USER AGENT
+# ---------------------------------------
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0"
+    "User-Agent": 
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
-RSS_FEEDS = [
-    "https://opportunitydesk.org/feed/",
-    "https://www.opportunitiesforafricans.com/feed/",
-    "https://youthopportunitieshub.com/feed/"
-]
 
-KEYWORDS = [
-    "africa","african","uganda","kenya","rwanda","tanzania",
-    "student","youth","scholarship","internship","grant",
-    "fellowship","competition","leadership"
-]
+# ---------------------------------------
+# CLEAN TEXT
+# ---------------------------------------
 
-def clean(text):
+def clean_text(text):
+    """
+    Remove unwanted spaces and characters
+    """
+
     if not text:
         return ""
-    return " ".join(str(text).split())
 
-def parse_deadline(text):
-    try:
-        return parse(text, fuzzy=True)
-    except:
-        return None
+    text = text.replace("\n", " ")
+    text = re.sub(r"\s+", " ", text)
 
-def is_active(deadline):
-    if deadline is None:
-        return True
-    return deadline >= datetime.now()
+    return text.strip()
 
-def verify_link(url):
-    try:
-        r = requests.head(url, timeout=8, allow_redirects=True, headers=HEADERS)
-        return r.status_code == 200
-    except:
-        return False
 
-def scrape_feed(feed_url):
+
+# ---------------------------------------
+# EXTRACT DEADLINE
+# ---------------------------------------
+
+def extract_deadline(text):
+
+    if not text:
+        return "Not specified"
+
+    patterns = [
+        r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}",
+        r"\d{1,2}\s(January|February|March|April|May|June|July|August|September|October|November|December)\s\d{4}"
+    ]
+
+    for pattern in patterns:
+
+        match = re.search(
+            pattern,
+            text,
+            re.IGNORECASE
+        )
+
+        if match:
+            return match.group()
+
+    return "Not specified"
+
+
+
+# ---------------------------------------
+# CATEGORY DETECTION
+# ---------------------------------------
+
+def detect_category(text):
+
+    text = text.lower()
+
+
+    if any(word in text for word in [
+        "scholarship",
+        "funding",
+        "financial aid"
+    ]):
+        return "Scholarship"
+
+
+    elif any(word in text for word in [
+        "internship",
+        "attachment",
+        "trainee"
+    ]):
+        return "Internship"
+
+
+    elif any(word in text for word in [
+        "job",
+        "career",
+        "employment"
+    ]):
+        return "Job"
+
+
+    elif any(word in text for word in [
+        "fellowship",
+        "leadership program"
+    ]):
+        return "Fellowship"
+
+
+    elif any(word in text for word in [
+        "grant",
+        "competition",
+        "award"
+    ]):
+        return "Grant"
+
+
+    return "Other"
+
+
+
+# ---------------------------------------
+# RELEVANCE SCORE
+# ---------------------------------------
+
+def calculate_score(text, keywords):
+
+    if not text:
+        return 0
+
+
+    text = text.lower()
+
+    score = 0
+
+
+    for word in keywords:
+
+        if word.lower() in text:
+            score += 1
+
+
+    return score
+
+
+
+# ---------------------------------------
+# GENERIC WEBSITE SCRAPER
+# ---------------------------------------
+
+def scrape_website(url, keywords=None):
+
+    if keywords is None:
+
+        keywords = [
+            "technology",
+            "computer science",
+            "data science",
+            "ai",
+            "software",
+            "student",
+            "internship"
+        ]
+
+
     opportunities = []
 
+
     try:
-        feed = feedparser.parse(feed_url)
 
-        for entry in feed.entries:
+        response = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=15
+        )
 
-            title = clean(entry.get("title", ""))
-            description = BeautifulSoup(
-                entry.get("summary", ""),
-                "html.parser"
-            ).get_text(" ")
 
-            link = entry.get("link", "")
+        response.raise_for_status()
 
-            deadline = "Rolling"
 
-            if hasattr(entry, "published"):
-                d = parse_deadline(entry.published)
-                if d:
-                    deadline = d.strftime("%d %b %Y")
+        soup = BeautifulSoup(
+            response.text,
+            "html.parser"
+        )
 
-            opportunities.append({
-                "title": title,
-                "organization": feed.feed.get("title", "Unknown"),
-                "description": description[:600],
-                "deadline": deadline,
-                "link": link,
-                "source": feed_url,
-                "type": "Opportunity"
-            })
+
+        links = soup.find_all("a")
+
+
+        for link in links:
+
+            title = clean_text(
+                link.get_text()
+            )
+
+
+            href = link.get("href")
+
+
+            if not title or not href:
+                continue
+
+
+
+            if href.startswith("/"):
+
+                href = url.rstrip("/") + href
+
+
+
+            description = title
+
+
+            opportunity = {
+
+                "Title": title,
+
+                "Organization": url.split("//")[-1].split("/")[0],
+
+                "Description": description,
+
+                "Deadline": extract_deadline(description),
+
+                "Category": detect_category(description),
+
+                "Location": "Not specified",
+
+                "Link": href,
+
+                "Source": url,
+
+                "Score": calculate_score(
+                    description,
+                    keywords
+                )
+
+            }
+
+
+            opportunities.append(
+                opportunity
+            )
+
 
     except Exception as e:
-        print(f"RSS Error: {feed_url} -> {e}")
+
+        print(
+            f"Error scraping {url}: {e}"
+        )
+
 
     return opportunities
 
 
-def scrape_page(url):
 
-    results = []
 
-    try:
+# ---------------------------------------
+# MULTIPLE SOURCES SCRAPER
+# ---------------------------------------
 
-        r = requests.get(
-            url,
-            headers=HEADERS,
-            timeout=20
+def scrape_sources(urls):
+
+    all_results = []
+
+
+    for url in urls:
+
+        print(
+            f"Scraping {url}"
         )
 
-        soup = BeautifulSoup(r.text, "lxml")
 
-        for a in soup.find_all("a", href=True):
-
-            href = a["href"]
-
-            if not href.startswith("http"):
-                continue
-
-            title = clean(a.get_text())
-
-            if len(title) < 8:
-                continue
-
-            text = (title + " " + href).lower()
-
-            if not any(k in text for k in KEYWORDS):
-                continue
-
-            results.append({
-
-                "title": title,
-                "organization": url.split("/")[2],
-                "description": "",
-                "deadline": "Rolling",
-                "link": href,
-                "source": url,
-                "type": "Opportunity"
-
-            })
-
-    except Exception as e:
-
-        print(f"Website Error: {url} -> {e}")
-
-    return results
-
-def remove_duplicates(data):
-
-    seen = set()
-    cleaned = []
-
-    for item in data:
-
-        key = (
-            item["title"].strip().lower(),
-            item["link"].strip().lower()
+        results = scrape_website(
+            url
         )
 
-        if key not in seen:
-            seen.add(key)
-            cleaned.append(item)
 
-    return cleaned
-
-
-def filter_relevant(data):
-
-    filtered = []
-
-    for item in data:
-
-        text = (
-            item["title"] + " " +
-            item["description"]
-        ).lower()
-
-        if any(k in text for k in KEYWORDS):
-            filtered.append(item)
-
-    return filtered
-
-
-def filter_active(data):
-
-    active = []
-
-    for item in data:
-
-        if item["deadline"] == "Rolling":
-            active.append(item)
-            continue
-
-        d = parse_deadline(item["deadline"])
-
-        if is_active(d):
-            active.append(item)
-
-    return active
-
-
-def verify_all_links(data):
-
-    verified = []
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-
-        futures = {
-            executor.submit(
-                verify_link,
-                item["link"]
-            ): item for item in data
-        }
-
-        for future in concurrent.futures.as_completed(futures):
-
-            item = futures[future]
-
-            try:
-                if future.result():
-                    verified.append(item)
-            except:
-                pass
-
-    return verified
-
-
-def run_scraper():
-
-    opportunities = []
-
-    print("Reading RSS feeds...")
-
-    for feed in RSS_FEEDS:
-        opportunities.extend(scrape_feed(feed))
-
-    print("Scanning websites...")
-
-    websites = [
-
-        "https://www.mastercardfdn.org/",
-        "https://www.oneyoungworld.com/",
-        "https://au.int/",
-        "https://www.undp.org/",
-        "https://opportunitydesk.org/",
-        "https://www.opportunitiesforafricans.com/",
-        "https://youthopportunitieshub.com/"
-
-    ]
-
-    for site in websites:
-        opportunities.extend(scrape_page(site))
-
-    opportunities = remove_duplicates(opportunities)
-
-    opportunities = filter_relevant(opportunities)
-
-    opportunities = filter_active(opportunities)
-
-    opportunities = verify_all_links(opportunities)
-
-    for item in opportunities:
-
-        score = 0
-
-        text = (
-            item["title"] + " " +
-            item["description"]
-        ).lower()
-
-        if "fully funded" in text:
-            score += 10
-
-        if "uganda" in text:
-            score += 5
-
-        if "africa" in text:
-            score += 3
-
-        score += sum(
-            1 for k in KEYWORDS if k in text
+        all_results.extend(
+            results
         )
 
-        item["score"] = score
 
-    opportunities.sort(
-        key=lambda x: x["score"],
-        reverse=True
+    return clean_dataframe(
+        all_results
     )
 
-    df = pd.DataFrame(opportunities)
 
-    if not df.empty:
 
-        df["scraped_at"] = datetime.now().strftime(
-            "%d %b %Y %H:%M"
-        )
+# ---------------------------------------
+# CLEAN DATAFRAME
+# ---------------------------------------
 
-        df.to_csv(
-            "opportunities.csv",
-            index=False
-        )
+def clean_dataframe(data):
 
-    print(f"Saved {len(df)} opportunities.")
+    df = pd.DataFrame(data)
+
+
+    if df.empty:
+        return df
+
+
+
+    # Remove duplicates
+
+    df.drop_duplicates(
+        subset=["Title"],
+        inplace=True
+    )
+
+
+    # Remove empty titles
+
+    df = df[
+        df["Title"].str.len() > 3
+    ]
+
+
+    # Sort best matches
+
+    df.sort_values(
+        by="Score",
+        ascending=False,
+        inplace=True
+    )
+
+
+    df.reset_index(
+        drop=True,
+        inplace=True
+    )
+
 
     return df
 
 
+
+# ---------------------------------------
+# SAVE CSV
+# ---------------------------------------
+
+def save_csv(df, filename):
+
+    df.to_csv(
+        filename,
+        index=False
+    )
+
+
+
+# ---------------------------------------
+# PDF REPORT DATA
+# ---------------------------------------
+
+def generate_report_text(df):
+
+    report = []
+
+    report.append(
+        "OPPORTUNITY SCRAPER REPORT"
+    )
+
+    report.append(
+        str(datetime.now())
+    )
+
+    report.append(
+        "\n"
+    )
+
+
+    for index,row in df.iterrows():
+
+        report.append(
+            f"""
+Title:
+{row['Title']}
+
+Category:
+{row['Category']}
+
+Deadline:
+{row['Deadline']}
+
+Link:
+{row['Link']}
+
+Score:
+{row['Score']}
+
+-----------------------
+"""
+        )
+
+
+    return "\n".join(report)
+
+
+
+# ---------------------------------------
+# TEST RUN
+# ---------------------------------------
+
 if __name__ == "__main__":
-    run_scraper()
+
+
+    websites = [
+
+        "https://www.opportunitiesforafricans.com/",
+
+    ]
+
+
+    data = scrape_sources(
+        websites
+    )
+
+
+    print(data.head())
+
+
+    save_csv(
+        data,
+        "opportunities.csv"
+    )
