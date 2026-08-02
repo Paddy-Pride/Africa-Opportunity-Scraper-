@@ -1,674 +1,617 @@
 import requests
-from bs4 import BeautifulSoup
+import feedparser
 import pandas as pd
-import time
-import re
+import concurrent.futures
+from bs4 import BeautifulSoup
 from datetime import datetime
+from dateutil import parser
+from fake_useragent import UserAgent
 
-def clean_text(text):
-    if not text:
-        return 'N/A'
-    text = re.sub(r'<[^>]+>', ' ', text)
-    text = re.sub(r'style="[^"]*"', ' ', text)
-    text = re.sub(r'class="[^"]*"', ' ', text)
-    text = re.sub(r'id="[^"]*"', ' ', text)
-    text = re.sub(r'\s+', ' ', text)
-    text = text.replace('\r', '').replace('\n', ' ').replace('\t', ' ')
+HEADERS = {
+    "User-Agent": UserAgent().random
+}
+
+RSS_FEEDS = [
+
+    # Scholarships
+    "https://www.opportunitiesforafricans.com/feed/",
+    "https://youthopportunitieshub.com/feed/",
+    "https://opportunitydesk.org/feed/",
+
+    # UN
+    "https://jobs.undp.org/rss",
+    "https://careers.un.org/lbw/home.aspx?viewtype=SJOBS&Lang=en-US/rss",
+
+]
+
+KEYWORDS = [
+
+    "africa",
+    "african",
+    "uganda",
+    "kenya",
+    "rwanda",
+    "tanzania",
+    "ghana",
+    "nigeria",
+    "zambia",
+    "cameroon",
+    "student",
+    "youth",
+    "scholarship",
+    "grant",
+    "internship",
+    "fellowship",
+    "competition",
+    "leadership"
+
+]
+
+
+def clean(text):
+
+    if text is None:
+        return ""
+
+    return " ".join(text.split())
+
+
+def parse_date(text):
+
+    if text is None:
+        return None
+
     text = text.strip()
-    return text if text else 'N/A'
 
-def extract_deadline(text):
-    if not text:
-        return 'N/A'
-    patterns = [
-        r'(?:deadline|closing date|application deadline|apply by)[:\s]*([^\.]+)',
-        r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4})',
-        r'(\d{1,2}/\d{1,2}/\d{4})',
-        r'(\d{4}-\d{2}-\d{2})',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.I)
-        if match:
-            return clean_text(match.group(1))
-    return 'N/A'
-
-def extract_eligibility(text):
-    if not text:
-        return 'N/A'
-    patterns = [
-        r'(?:eligibility|qualifications|requirements|criteria)[:\s]*([^.]+[.])',
-        r'(?:you are eligible|you qualify|must be|should have)[:\s]*([^.]+[.])',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.I)
-        if match:
-            return clean_text(match.group(1))
-    return 'N/A'
-
-def extract_benefits(text):
-    if not text:
-        return 'N/A'
-    patterns = [
-        r'(?:benefits|includes|what you get|funding|coverage)[:\s]*([^.]+[.])',
-        r'(?:tuition|stipend|travel|allowance|salary)[:\s]*([^.]+[.])',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.I)
-        if match:
-            return clean_text(match.group(1))
-    return 'N/A'
-
-# ============ SOURCE 1: One Young World Scholarships ============
-def scrape_oneyoungworld():
-    opportunities = []
-    url = "https://www.oneyoungworld.com/scholarships"
-    
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        response = requests.get(url, headers=headers, timeout=30)
-        
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            cards = soup.find_all('div', class_=re.compile(r'scholarship|card|item', re.I))
-            
-            for card in cards[:15]:
-                link_tag = card.find('a', href=True)
-                link = 'N/A'
-                if link_tag:
-                    href = link_tag.get('href', '')
-                    if href:
-                        if href.startswith('/'):
-                            link = 'https://www.oneyoungworld.com' + href
-                        elif href.startswith('http'):
-                            link = href
-                        else:
-                            link = 'https://www.oneyoungworld.com/' + href
-                
-                title_tag = card.find(['h2', 'h3', 'h4'])
-                title = clean_text(title_tag.get_text()) if title_tag else 'N/A'
-                
-                desc_tag = card.find(['p', 'div'], class_=re.compile(r'desc|body|excerpt', re.I))
-                description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
-                
-                deadline = extract_deadline(description + title)
-                eligibility = extract_eligibility(description)
-                benefits = extract_benefits(description)
-                
-                opp_type = 'Scholarship'
-                if 'fellowship' in (title + description).lower():
-                    opp_type = 'Fellowship'
-                elif 'grant' in (title + description).lower():
-                    opp_type = 'Grant'
-                
-                if title != 'N/A' and link != 'N/A' and link != '#':
-                    opportunities.append({
-                        'title': title,
-                        'organization': 'One Young World',
-                        'description': description[:500],
-                        'deadline': deadline,
-                        'eligibility': eligibility[:300],
-                        'benefits': benefits[:300],
-                        'link': link,
-                        'source': 'One Young World',
-                        'type': opp_type,
-                        'target_audience': 'African youth',
-                        'funding_level': 'Fully Funded' if 'fully' in (benefits + description).lower() else 'Varies'
-                    })
-    except Exception as e:
-        print(f"Error scraping One Young World: {e}")
-    
-    return opportunities
+        return parser.parse(text,fuzzy=True)
 
-# ============ SOURCE 2: DAAD Scholarships ============
-def scrape_daad():
-    opportunities = []
-    url = "https://www.daad.de/en/study-and-research-in-germany/scholarships/"
-    
+    except:
+
+        return None
+
+
+def is_active(deadline):
+
+    if deadline is None:
+
+        return True
+
+    return deadline >= datetime.now()
+
+
+def score(item):
+
+    s = 0
+
+    txt = (
+        item["title"]+" "+
+        item["description"]
+    ).lower()
+
+    for k in KEYWORDS:
+
+        if k in txt:
+            s += 2
+
+    if "fully funded" in txt:
+        s += 10
+
+    if "uganda" in txt:
+        s += 5
+
+    if item["deadline"] != "Rolling":
+        s += 3
+
+    return s
+
+
+def verify(url):
+
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        response = requests.get(url, headers=headers, timeout=30)
-        
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            entries = soup.find_all('li', class_=re.compile(r'scholarship|item|entry', re.I))
-            
-            for entry in entries[:15]:
-                link_tag = entry.find('a', href=True)
-                link = 'N/A'
-                if link_tag:
-                    href = link_tag.get('href', '')
-                    if href:
-                        if href.startswith('/'):
-                            link = 'https://www.daad.de' + href
-                        elif href.startswith('http'):
-                            link = href
-                        else:
-                            link = 'https://www.daad.de/' + href
-                
-                title = clean_text(link_tag.get_text()) if link_tag else 'N/A'
-                
-                desc_tag = entry.find('p')
-                description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
-                
-                deadline = extract_deadline(description + title)
-                eligibility = extract_eligibility(description)
-                benefits = extract_benefits(description)
-                
-                if title != 'N/A' and link != 'N/A' and link != '#':
-                    opportunities.append({
-                        'title': title,
-                        'organization': 'DAAD',
-                        'description': description[:500],
-                        'deadline': deadline,
-                        'eligibility': eligibility[:300],
-                        'benefits': benefits[:300],
-                        'link': link,
-                        'source': 'DAAD',
-                        'type': 'Scholarship',
-                        'target_audience': 'African students',
-                        'funding_level': 'Fully Funded' if 'fully' in (benefits + description).lower() else 'Partial'
-                    })
-    except Exception as e:
-        print(f"Error scraping DAAD: {e}")
-    
-    return opportunities
 
-# ============ SOURCE 3: Mastercard Foundation ============
-def scrape_mastercard():
-    opportunities = []
-    url = "https://mastercardfdn.org/opportunities/"
-    
+        r = requests.head(
+            url,
+            timeout=8,
+            allow_redirects=True,
+            headers=HEADERS
+        )
+
+        return r.status_code == 200
+
+    except:
+
+        return False
+
+
+def scrape_feed(feed):
+
+    data=[]
+
+    rss=feedparser.parse(feed)
+
+    for e in rss.entries:
+
+        title=clean(e.get("title",""))
+
+        link=e.get("link","")
+
+        desc=BeautifulSoup(
+            e.get("summary",""),
+            "html.parser"
+        ).text
+
+        deadline="Rolling"
+
+        date=parse_date(desc)
+
+        if date:
+
+            deadline=date.strftime("%d %b %Y")
+
+        item={
+
+            "title":title,
+            "organization":feed.split("/")[2],
+            "description":clean(desc)[:600],
+            "deadline":deadline,
+            "link":link,
+            "source":feed,
+            "type":"Opportunity"
+
+        }
+
+        data.append(item)
+
+    return data
+
+
+def scrape_page(url):
+
+    out=[]
+
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        response = requests.get(url, headers=headers, timeout=30)
-        
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            items = soup.find_all('article', class_=re.compile(r'post|item|opportunity', re.I))
-            
-            for item in items[:10]:
-                link_tag = item.find('a', href=True)
-                link = 'N/A'
-                if link_tag:
-                    href = link_tag.get('href', '')
-                    if href:
-                        if href.startswith('/'):
-                            link = 'https://mastercardfdn.org' + href
-                        elif href.startswith('http'):
-                            link = href
-                        else:
-                            link = 'https://mastercardfdn.org/' + href
-                
-                title_tag = item.find(['h2', 'h3'])
-                title = clean_text(title_tag.get_text()) if title_tag else 'N/A'
-                
-                desc_tag = item.find('p')
-                description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
-                
-                deadline = extract_deadline(description + title)
-                eligibility = extract_eligibility(description)
-                benefits = extract_benefits(description)
-                
-                if title != 'N/A' and link != 'N/A' and link != '#':
-                    opportunities.append({
-                        'title': title,
-                        'organization': 'Mastercard Foundation',
-                        'description': description[:500],
-                        'deadline': deadline,
-                        'eligibility': eligibility[:300],
-                        'benefits': benefits[:300],
-                        'link': link,
-                        'source': 'Mastercard Foundation',
-                        'type': 'Scholarship',
-                        'target_audience': 'African youth',
-                        'funding_level': 'Fully Funded' if 'fully' in (benefits + description).lower() else 'Varies'
-                    })
-    except Exception as e:
-        print(f"Error scraping Mastercard Foundation: {e}")
-    
-    return opportunities
 
-# ============ SOURCE 4: African Union ============
-def scrape_african_union():
-    opportunities = []
-    url = "https://au.int/en/opportunities"
-    
-    try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        response = requests.get(url, headers=headers, timeout=30)
-        
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            items = soup.find_all('div', class_=re.compile(r'views-row|item|opportunity', re.I))
-            
-            for item in items[:10]:
-                link_tag = item.find('a', href=True)
-                link = 'N/A'
-                if link_tag:
-                    href = link_tag.get('href', '')
-                    if href:
-                        if href.startswith('/'):
-                            link = 'https://au.int' + href
-                        elif href.startswith('http'):
-                            link = href
-                        else:
-                            link = 'https://au.int/' + href
-                
-                title = clean_text(link_tag.get_text()) if link_tag else 'N/A'
-                
-                desc_tag = item.find('p')
-                description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
-                
-                deadline = extract_deadline(description + title)
-                eligibility = extract_eligibility(description)
-                benefits = extract_benefits(description)
-                
-                if title != 'N/A' and link != 'N/A' and link != '#':
-                    opportunities.append({
-                        'title': title,
-                        'organization': 'African Union',
-                        'description': description[:500],
-                        'deadline': deadline,
-                        'eligibility': eligibility[:300],
-                        'benefits': benefits[:300],
-                        'link': link,
-                        'source': 'African Union',
-                        'type': 'Fellowship',
-                        'target_audience': 'African youth',
-                        'funding_level': 'Fully Funded' if 'fully' in (benefits + description).lower() else 'Varies'
-                    })
-    except Exception as e:
-        print(f"Error scraping African Union: {e}")
-    
-    return opportunities
+        r=requests.get(
+            url,
+            headers=HEADERS,
+            timeout=20
+        )
 
-# ============ SOURCE 5: UNDP ============
-def scrape_undp():
-    opportunities = []
-    url = "https://www.undp.org/opportunities"
-    
-    try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        response = requests.get(url, headers=headers, timeout=30)
-        
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            items = soup.find_all('div', class_=re.compile(r'card|item|opportunity', re.I))
-            
-            for item in items[:10]:
-                link_tag = item.find('a', href=True)
-                link = 'N/A'
-                if link_tag:
-                    href = link_tag.get('href', '')
-                    if href:
-                        if href.startswith('/'):
-                            link = 'https://www.undp.org' + href
-                        elif href.startswith('http'):
-                            link = href
-                        else:
-                            link = 'https://www.undp.org/' + href
-                
-                title_tag = item.find(['h2', 'h3'])
-                title = clean_text(title_tag.get_text()) if title_tag else 'N/A'
-                
-                desc_tag = item.find('p')
-                description = clean_text(desc_tag.get_text()) if desc_tag else 'N/A'
-                
-                deadline = extract_deadline(description + title)
-                eligibility = extract_eligibility(description)
-                benefits = extract_benefits(description)
-                
-                opp_type = 'Opportunity'
-                if 'grant' in (title + description).lower():
-                    opp_type = 'Grant'
-                elif 'fellowship' in (title + description).lower():
-                    opp_type = 'Fellowship'
-                elif 'internship' in (title + description).lower():
-                    opp_type = 'Internship'
-                
-                if title != 'N/A' and link != 'N/A' and link != '#':
-                    opportunities.append({
-                        'title': title,
-                        'organization': 'UNDP',
-                        'description': description[:500],
-                        'deadline': deadline,
-                        'eligibility': eligibility[:300],
-                        'benefits': benefits[:300],
-                        'link': link,
-                        'source': 'UNDP',
-                        'type': opp_type,
-                        'target_audience': 'African youth',
-                        'funding_level': 'Fully Funded' if 'fully' in (benefits + description).lower() else 'Varies'
-                    })
-    except Exception as e:
-        print(f"Error scraping UNDP: {e}")
-    
-    return opportunities
+        soup=BeautifulSoup(
+            r.text,
+            "lxml"
+        )
 
-# ============ SOURCE 6: UNDP Youth Co-Creators Council ============
-def scrape_undp_youth_council():
-    opportunities = []
-    
-    try:
-        opportunities.append({
-            'title': 'UNDP African Youth Co-Creators Council',
-            'organization': 'UNDP',
-            'description': 'Call for applications for young African leaders to join the African Youth Co-Creators Council. Shape UNDP\'s work on youth engagement and provide strategic guidance on youth programming across the continent.',
-            'deadline': '31 July 2026',
-            'eligibility': 'African nationals aged 18-34 with demonstrated leadership experience',
-            'benefits': 'Leadership development, policy influence, networking, mentorship',
-            'link': 'https://www.undp.org/africa/call-applications-african-youth-co-creators-council',
-            'source': 'UNDP',
-            'type': 'Leadership Program',
-            'target_audience': 'African youth',
-            'funding_level': 'Fully Funded (travel costs covered)'
-        })
-    except Exception as e:
-        print(f"Error scraping UNDP Youth Council: {e}")
-    
-    return opportunities
+        links=soup.find_all("a",href=True)
 
-# ============ SOURCE 7: AU Digital & Innovation Fellowship ============
-def scrape_au_digital_fellowship():
-    opportunities = []
-    
-    try:
-        opportunities.append({
-            'title': 'AU Digital & Innovation Fellowship - Cohort 3',
-            'organization': 'African Union Commission',
-            'description': '12-month immersive programme selecting Africa\'s brightest technical minds to co-develop data-driven solutions within AU institutions. Fellows work across specialized technical tracks including Data Analytics, Digital Communications, Full-Stack Development, and ERP SAP.',
-            'deadline': '1 March 2026',
-            'eligibility': 'AU Member State citizens under 35 with degree in relevant technical field',
-            'benefits': 'Monthly stipend (2500 Euros), equipment budget, learning budget, international exposure, bootcamps',
-            'link': 'https://au.int/en/digital-and-innovation-fellowship',
-            'source': 'African Union',
-            'type': 'Fellowship',
-            'target_audience': 'African youth in tech',
-            'funding_level': 'Fully Funded'
-        })
-    except Exception as e:
-        print(f"Error scraping AU Digital Fellowship: {e}")
-    
-    return opportunities
+        for a in links:
 
-# ============ SOURCE 8: EAC Student Mobility Scholarship ============
-def scrape_eac_scholarship():
-    opportunities = []
-    
-    try:
-        opportunities.append({
-            'title': 'EAC Student Mobility Scholarship Scheme',
-            'organization': 'East African Community',
-            'description': 'Scholarships for diploma, undergraduate, master\'s and PhD study at 28 universities across Burundi, Kenya, Rwanda, South Sudan, Tanzania and Uganda. Covers tuition, exam fees, travel, health insurance and research support.',
-            'deadline': '20 August 2026',
-            'eligibility': 'Nationals and residents of EAC partner states; Master\'s applicants under 35, PhD applicants under 45',
-            'benefits': 'Tuition, exam fees, travel, health insurance, research support (students cover housing and living costs)',
-            'link': 'https://www.eac.int/',
-            'source': 'EAC',
-            'type': 'Scholarship',
-            'target_audience': 'EAC nationals',
-            'funding_level': 'Partial (tuition + fees)'
-        })
-    except Exception as e:
-        print(f"Error scraping EAC scholarship: {e}")
-    
-    return opportunities
+            href=a["href"]
 
-# ============ SOURCE 9: UNDP timbuktoo EdTech ============
-def scrape_timbuktoo_edtech():
-    opportunities = []
-    
-    try:
-        opportunities.append({
-            'title': 'UNDP timbuktoo EdTech Hub Pan-African Incubation Programme',
-            'organization': 'UNDP',
-            'description': 'Supports African EdTech startups with mentorship, incubation services, investment-readiness help and access to investors. Based in Dakar, Senegal. Connects startups with governments, universities, investors and incubators.',
-            'deadline': 'Rolling (applications reviewed continuously)',
-            'eligibility': 'African-based startups working on education/skills development with prototype ready; priority to women-led teams, rural founders, local-language solutions',
-            'benefits': 'Mentorship, incubation services, investment-readiness support, investor access',
-            'link': 'https://www.undp.org/africa/timbuktoo',
-            'source': 'UNDP',
-            'type': 'Grant/Incubation',
-            'target_audience': 'African EdTech startups',
-            'funding_level': 'Fully Funded Incubation'
-        })
-    except Exception as e:
-        print(f"Error scraping timbuktoo: {e}")
-    
-    return opportunities
+            title=clean(a.get_text())
 
-# ============ SOURCE 10: New Leaders Lab ============
-def scrape_new_leaders_lab():
-    opportunities = []
-    
-    try:
-        opportunities.append({
-            'title': 'New Leaders Lab - AEYA',
-            'organization': 'AEYA (African European Youth Alliance)',
-            'description': 'Free 3-4 month leadership program focused on entrepreneurship, civic engagement, and community development. Fully funded by the European Union.',
-            'deadline': '19 July 2026',
-            'eligibility': 'Aged 18-30 residing in: Benin, Burkina Faso, Cameroon, Congo, Côte d\'Ivoire, Ethiopia, Guinea, Kenya, Malawi, Mauritania, Mozambique, Niger, Uganda, DRC, Rwanda, Senegal, Tanzania, Togo, Zambia',
-            'benefits': 'Leadership development, mentorship, networking, project support',
-            'link': 'https://aeya.org',
-            'source': 'AEYA',
-            'type': 'Leadership Program',
-            'target_audience': 'Youth in 19 African countries',
-            'funding_level': 'Fully Funded'
-        })
-    except Exception as e:
-        print(f"Error scraping New Leaders Lab: {e}")
-    
-    return opportunities
+            if len(title)<8:
 
-# ============ SOURCE 11: Africa CDC Fellowship ============
-def scrape_africa_cdc_fellowship():
-    opportunities = []
-    
-    try:
-        opportunities.append({
-            'title': 'Africa CDC African Epidemic Services Fellowship',
-            'organization': 'Africa CDC',
-            'description': 'Fully funded two-year fellowship for young public health professionals from African Union member states. First three months in Addis Ababa, Ethiopia, followed by 21 months of field-based training in an AU member state.',
-            'deadline': '26 August 2026',
-            'eligibility': 'Under 35, already employed in Africa, hold relevant health-related qualifications',
-            'benefits': 'Fully funded two-year program with training and field experience',
-            'link': 'https://africacdc.org/',
-            'source': 'Africa CDC',
-            'type': 'Fellowship',
-            'target_audience': 'African public health professionals',
-            'funding_level': 'Fully Funded'
-        })
-    except Exception as e:
-        print(f"Error scraping Africa CDC: {e}")
-    
-    return opportunities
+                continue
 
-# ============ SOURCE 12: World Bank Fellowship ============
-def scrape_world_bank_fellowship():
-    opportunities = []
-    
-    try:
-        opportunities.append({
-            'title': 'World Bank Group Africa Fellowship Program 2027',
-            'organization': 'World Bank Group',
-            'description': 'Six-month fellowship for final-year PhD candidates and recent PhD graduates from Sub-Saharan Africa. Placement runs from January 2027 at World Bank headquarters in Washington, D.C., or at a country office.',
-            'deadline': '25 August 2026',
-            'eligibility': 'Final-year PhD candidates and recent PhD graduates from Sub-Saharan Africa; 32 or younger as of Jan 1, 2027; strong research and analytical skills',
-            'benefits': 'Six-month placement, professional development, networking',
-            'link': 'https://www.worldbank.org/',
-            'source': 'World Bank',
-            'type': 'Fellowship',
-            'target_audience': 'Sub-Saharan African PhD candidates',
-            'funding_level': 'Fully Funded'
-        })
-    except Exception as e:
-        print(f"Error scraping World Bank: {e}")
-    
-    return opportunities
+            if "http" not in href:
 
-# ============ SOURCE 13: Africa Fundraising Incubator ============
-def scrape_fundraising_incubator():
-    opportunities = []
-    
-    try:
-        opportunities.append({
-            'title': 'Africa Fundraising Incubator 2026',
-            'organization': 'Various Partners',
-            'description': 'Capacity-building programme for nonprofits, social enterprises and community groups focused on fundraising. Hands-on training in fundraising, donor engagement and proposal writing with live fundraising campaign.',
-            'deadline': '14 August 2026 (5pm UTC)',
-            'eligibility': 'Nonprofits, social enterprises, community groups',
-            'benefits': 'Up to $5,000 in matching funds, 12 months fiscal sponsorship, training, in-person bootcamp in Kigali for top performers',
-            'link': 'https://africafundraising.org/',
-            'source': 'Africa Fundraising Incubator',
-            'type': 'Grant/Training',
-            'target_audience': 'African nonprofits and social enterprises',
-            'funding_level': 'Grant up to $5,000'
-        })
-    except Exception as e:
-        print(f"Error scraping Fundraising Incubator: {e}")
-    
-    return opportunities
+                continue
 
-# ============ SOURCE 14: Mastercard Scholars Program ============
-def scrape_mastercard_scholars():
-    opportunities = []
-    
-    try:
-        opportunities.append({
-            'title': 'Mastercard Foundation Scholars Program',
-            'organization': 'Mastercard Foundation',
-            'description': 'Scholarship program providing financial, social and academic support to talented African students from disadvantaged communities. Available for secondary, undergraduate and Master\'s studies at partner universities globally.',
-            'deadline': 'Varies by institution',
-            'eligibility': 'African students; under 29 for undergraduate, under 35 for Master\'s; academically talented with leadership potential',
-            'benefits': 'Tuition, accommodation, books, research materials, leadership development, mentorship',
-            'link': 'https://mastercardfdn.org/',
-            'source': 'Mastercard Foundation',
-            'type': 'Scholarship',
-            'target_audience': 'African students',
-            'funding_level': 'Fully Funded'
-        })
-    except Exception as e:
-        print(f"Error scraping Mastercard Scholars: {e}")
-    
-    return opportunities
+            text=(title+" "+href).lower()
 
-# ============ SOURCE 15: Code for Africa ============
-def scrape_code_for_africa():
-    opportunities = []
-    
-    try:
-        opportunities.append({
-            'title': 'Code for Africa Mythbusters Fellowship',
-            'organization': 'Code for Africa (CfA)',
-            'description': 'Part-time fellowships for community researchers in the SADC region to investigate and counter misinformation, and amplify factual narratives.',
-            'deadline': 'Varies',
-            'eligibility': 'Community researchers in the SADC region',
-            'benefits': 'Monthly stipend',
-            'link': 'https://codeforafrica.org/',
-            'source': 'Code for Africa',
-            'type': 'Fellowship',
-            'target_audience': 'SADC region researchers',
-            'funding_level': 'Stipend'
-        })
-    except Exception as e:
-        print(f"Error scraping Code for Africa: {e}")
-    
-    return opportunities
+            if not any(k in text for k in KEYWORDS):
 
-# ============ FILTERS ============
-def filter_africa_opportunities(opportunities):
-    keywords = ['africa', 'african', 'kenya', 'nigeria', 'ghana', 'uganda', 
-                'tanzania', 'south africa', 'rwanda', 'ethiopia', 'zambia',
-                'zimbabwe', 'cameroon', 'senegal', 'botswana', 'sub-saharan',
-                'west africa', 'east africa', 'southern africa']
+                continue
+
+            out.append({
+
+                "title":title,
+                "organization":url.split("/")[2],
+                "description":"",
+                "deadline":"Rolling",
+                "link":href,
+                "source":url,
+                "type":"Opportunity"
+
+            })
+
+    except:
+
+        pass
+
+    return out
+def remove_duplicates(data):
+
+    seen = set()
+    clean_data = []
+
+    for item in data:
+
+        key = (
+            item["title"].strip().lower(),
+            item["link"].strip().lower()
+        )
+
+        if key not in seen:
+
+            seen.add(key)
+            clean_data.append(item)
+
+    return clean_data
+
+
+def filter_relevant(data):
+
     filtered = []
-    for opp in opportunities:
-        text = str(opp).lower()
-        if any(kw in text for kw in keywords):
-            filtered.append(opp)
+
+    for item in data:
+
+        text = (
+            item["title"] + " " +
+            item["description"]
+        ).lower()
+
+        if any(k in text for k in KEYWORDS):
+
+            filtered.append(item)
+
     return filtered
 
-def filter_active_opportunities(opportunities):
+
+def filter_active(data):
+
     active = []
-    for opp in opportunities:
-        deadline = opp.get('deadline', '')
-        if deadline:
-            deadline_lower = deadline.lower()
-            if 'ongoing' in deadline_lower:
-                active.append(opp)
-            elif 'vari' in deadline_lower:
-                active.append(opp)
-            elif 'rolling' in deadline_lower:
-                active.append(opp)
-            elif deadline != 'N/A':
-                active.append(opp)
+
+    for item in data:
+
+        if item["deadline"] == "Rolling":
+
+            active.append(item)
+
         else:
-            active.append(opp)
+
+            d = parse_date(item["deadline"])
+
+            if is_active(d):
+
+                active.append(item)
+
     return active
 
-# ============ MAIN ============
-def run_scraper():
-    all_opportunities = []
-    
-    print("Starting comprehensive opportunity scraper...")
-    
-    print("Scraping One Young World...")
-    all_opportunities.extend(scrape_oneyoungworld())
-    
-    print("Scraping DAAD...")
-    all_opportunities.extend(scrape_daad())
-    
-    print("Scraping Mastercard Foundation...")
-    all_opportunities.extend(scrape_mastercard())
-    
-    print("Scraping African Union...")
-    all_opportunities.extend(scrape_african_union())
-    
-    print("Scraping UNDP...")
-    all_opportunities.extend(scrape_undp())
-    
-    print("Scraping UNDP Youth Co-Creators Council...")
-    all_opportunities.extend(scrape_undp_youth_council())
-    
-    print("Scraping AU Digital & Innovation Fellowship...")
-    all_opportunities.extend(scrape_au_digital_fellowship())
-    
-    print("Scraping EAC Student Mobility Scholarship...")
-    all_opportunities.extend(scrape_eac_scholarship())
-    
-    print("Scraping UNDP timbuktoo EdTech...")
-    all_opportunities.extend(scrape_timbuktoo_edtech())
-    
-    print("Scraping New Leaders Lab...")
-    all_opportunities.extend(scrape_new_leaders_lab())
-    
-    print("Scraping Africa CDC Fellowship...")
-    all_opportunities.extend(scrape_africa_cdc_fellowship())
-    
-    print("Scraping World Bank Fellowship...")
-    all_opportunities.extend(scrape_world_bank_fellowship())
-    
-    print("Scraping Africa Fundraising Incubator...")
-    all_opportunities.extend(scrape_fundraising_incubator())
-    
-    print("Scraping Mastercard Scholars...")
-    all_opportunities.extend(scrape_mastercard_scholars())
-    
-    print("Scraping Code for Africa...")
-    all_opportunities.extend(scrape_code_for_africa())
-    
-    print(f"Total found: {len(all_opportunities)}")
-    
-    africa_ops = filter_africa_opportunities(all_opportunities)
-    print(f"After Africa filter: {len(africa_ops)}")
-    
-    active_ops = filter_active_opportunities(africa_ops)
-    print(f"After active filter: {len(active_ops)}")
-    
-    return active_ops
 
-if __name__ == '__main__':
-    data = run_scraper()
+def verify_links(data):
+
+    verified = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+
+        future_map = {
+            executor.submit(
+                verify,
+                item["link"]
+            ): item for item in data
+        }
+
+        for future in concurrent.futures.as_completed(future_map):
+
+            item = future_map[future]
+
+            try:
+
+                if future.result():
+
+                    verified.append(item)
+
+            except:
+
+                pass
+
+    return verified
+
+
+def rank(data):
+
+    for item in data:
+
+        item["score"] = score(item)
+
+    data = sorted(
+        data,
+        key=lambda x: x["score"],
+        reverse=True
+    )
+
+    return data
+
+
+def scrape_all():
+
+    opportunities = []
+
+    print("Loading RSS feeds...")
+
+    for feed in RSS_FEEDS:
+
+        try:
+
+            opportunities.extend(
+                scrape_feed(feed)
+            )
+
+        except Exception as e:
+
+            print(e)
+
+    print("Scanning websites...")
+
+    sites = [
+
+        "https://www.mastercardfdn.org/",
+        "https://www.oneyoungworld.com/",
+        "https://au.int/",
+        "https://www.undp.org/",
+        "https://www.afdb.org/",
+        "https://codeforafrica.org/",
+        "https://yali.state.gov/",
+        "https://opportunitydesk.org/",
+        "https://opportunitiesforafricans.com/"
+    ]
+
+    for site in sites:
+
+        try:
+
+            opportunities.extend(
+                scrape_page(site)
+            )
+
+        except Exception as e:
+
+            print(e)
+
+    print("Removing duplicates...")
+
+    opportunities = remove_duplicates(opportunities)
+
+    print("Filtering relevance...")
+
+    opportunities = filter_relevant(opportunities)
+
+    print("Filtering expired opportunities...")
+
+    opportunities = filter_active(opportunities)
+
+    print("Checking links...")
+
+    opportunities = verify_links(opportunities)
+
+    print("Ranking...")
+
+    opportunities = rank(opportunities)
+
+    return opportunities
+
+
+def run_scraper():
+
+    data = scrape_all()
+
     df = pd.DataFrame(data)
-    df.to_csv('opportunities.csv', index=False)
-    print(f"Saved {len(data)} opportunities to CSV")
+
+    if len(df):
+
+        df["scraped_at"] = datetime.now().strftime(
+            "%d %b %Y %H:%M"
+        )
+
+        df.to_csv(
+            "opportunities.csv",
+            index=False
+        )
+
+    print(f"{len(df)} opportunities saved.")
+
+    return df
+
+
+if __name__ == "__main__":
+
+    run_scraper()def remove_duplicates(data):
+
+    seen = set()
+    clean_data = []
+
+    for item in data:
+
+        key = (
+            item["title"].strip().lower(),
+            item["link"].strip().lower()
+        )
+
+        if key not in seen:
+
+            seen.add(key)
+            clean_data.append(item)
+
+    return clean_data
+
+
+def filter_relevant(data):
+
+    filtered = []
+
+    for item in data:
+
+        text = (
+            item["title"] + " " +
+            item["description"]
+        ).lower()
+
+        if any(k in text for k in KEYWORDS):
+
+            filtered.append(item)
+
+    return filtered
+
+
+def filter_active(data):
+
+    active = []
+
+    for item in data:
+
+        if item["deadline"] == "Rolling":
+
+            active.append(item)
+
+        else:
+
+            d = parse_date(item["deadline"])
+
+            if is_active(d):
+
+                active.append(item)
+
+    return active
+
+
+def verify_links(data):
+
+    verified = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+
+        future_map = {
+            executor.submit(
+                verify,
+                item["link"]
+            ): item for item in data
+        }
+
+        for future in concurrent.futures.as_completed(future_map):
+
+            item = future_map[future]
+
+            try:
+
+                if future.result():
+
+                    verified.append(item)
+
+            except:
+
+                pass
+
+    return verified
+
+
+def rank(data):
+
+    for item in data:
+
+        item["score"] = score(item)
+
+    data = sorted(
+        data,
+        key=lambda x: x["score"],
+        reverse=True
+    )
+
+    return data
+
+
+def scrape_all():
+
+    opportunities = []
+
+    print("Loading RSS feeds...")
+
+    for feed in RSS_FEEDS:
+
+        try:
+
+            opportunities.extend(
+                scrape_feed(feed)
+            )
+
+        except Exception as e:
+
+            print(e)
+
+    print("Scanning websites...")
+
+    sites = [
+
+        "https://www.mastercardfdn.org/",
+        "https://www.oneyoungworld.com/",
+        "https://au.int/",
+        "https://www.undp.org/",
+        "https://www.afdb.org/",
+        "https://codeforafrica.org/",
+        "https://yali.state.gov/",
+        "https://opportunitydesk.org/",
+        "https://opportunitiesforafricans.com/"
+    ]
+
+    for site in sites:
+
+        try:
+
+            opportunities.extend(
+                scrape_page(site)
+            )
+
+        except Exception as e:
+
+            print(e)
+
+    print("Removing duplicates...")
+
+    opportunities = remove_duplicates(opportunities)
+
+    print("Filtering relevance...")
+
+    opportunities = filter_relevant(opportunities)
+
+    print("Filtering expired opportunities...")
+
+    opportunities = filter_active(opportunities)
+
+    print("Checking links...")
+
+    opportunities = verify_links(opportunities)
+
+    print("Ranking...")
+
+    opportunities = rank(opportunities)
+
+    return opportunities
+
+
+def run_scraper():
+
+    data = scrape_all()
+
+    df = pd.DataFrame(data)
+
+    if len(df):
+
+        df["scraped_at"] = datetime.now().strftime(
+            "%d %b %Y %H:%M"
+        )
+
+        df.to_csv(
+            "opportunities.csv",
+            index=False
+        )
+
+    print(f"{len(df)} opportunities saved.")
+
+    return df
+
+
+if __name__ == "__main__":
+
+    run_scraper()
