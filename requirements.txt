@@ -1,7 +1,12 @@
 streamlit
 requests
 beautifulsoup4
-lxml
 pandas
-openpyxl
+lxml
+feedparser
+python-dateutil
+schedule
+fpdf2
 reportlab
+tqdm
+fake-useragent
