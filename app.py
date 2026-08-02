@@ -1,8 +1,13 @@
 import streamlit as st
 import pandas as pd
-from scraper import scrape_sources, generate_report_text
 from io import BytesIO
+
+from scraper import scrape_sources
+from verifier import verify_link
+from nlp_matcher import match_opportunities
+
 from reportlab.pdfgen import canvas
+
 
 
 # -----------------------------------
@@ -10,23 +15,34 @@ from reportlab.pdfgen import canvas
 # -----------------------------------
 
 st.set_page_config(
-    page_title="Opportunity Scraper AI",
-    page_icon="🔎",
+
+    page_title="Official Opportunity Finder",
+
+    page_icon="🌍",
+
     layout="wide"
+
 )
+
 
 
 # -----------------------------------
 # TITLE
 # -----------------------------------
 
-st.title("🔎 Opportunity Scraper AI")
+st.title(
+    "🌍 Official Opportunity Finder"
+)
+
 
 st.write(
-    """
-Find scholarships, internships, jobs, fellowships and grants 
-from different sources using AI-powered matching.
+
 """
+Find scholarships, internships, fellowships,
+jobs and grants with verified official
+application portals.
+"""
+
 )
 
 
@@ -36,27 +52,42 @@ from different sources using AI-powered matching.
 # -----------------------------------
 
 st.sidebar.header(
-    "Scraper Settings"
+    "Search Settings"
 )
 
 
-urls_input = st.sidebar.text_area(
-    "Enter websites (one per line)",
-    """
-https://www.opportunitiesforafricans.com/
+
+websites = st.sidebar.text_area(
+
+    "Opportunity websites",
+
 """
+https://careers.microsoft.com
+https://www.un.org
+""",
+
 )
 
 
-keywords_input = st.sidebar.text_input(
-    "Your interests",
-    "computer science, AI, data science, internship"
+
+profile = st.sidebar.text_area(
+
+    "Describe yourself",
+
+"""
+Computer Science student interested in
+AI, software development and internships
+in Africa.
+"""
+
 )
 
 
 
-run = st.sidebar.button(
-    "🚀 Start Scraping"
+start = st.sidebar.button(
+
+    "🔎 Find Opportunities"
+
 )
 
 
@@ -65,75 +96,150 @@ run = st.sidebar.button(
 # SESSION STORAGE
 # -----------------------------------
 
-if "data" not in st.session_state:
+if "results" not in st.session_state:
 
-    st.session_state.data = pd.DataFrame()
+    st.session_state.results = pd.DataFrame()
 
 
 
 # -----------------------------------
-# SCRAPE
+# MAIN PROCESS
 # -----------------------------------
 
-if run:
+if start:
 
 
-    websites = [
-
-        url.strip()
-
-        for url in urls_input.split("\n")
-
-        if url.strip()
-
-    ]
-
-
-    keywords = [
+    sources = [
 
         x.strip()
 
-        for x in keywords_input.split(",")
+        for x in websites.split("\n")
+
+        if x.strip()
 
     ]
 
 
+
     with st.spinner(
-        "Searching opportunities..."
+        "Searching official portals..."
     ):
 
 
+        # 1. SCRAPE
+
         data = scrape_sources(
-            websites
+
+            sources
+
         )
 
 
-        if not data.empty:
 
-            # Recalculate score based on user interests
-
-            from scraper import calculate_score
+        if data.empty:
 
 
-            data["Score"] = data[
-                "Description"
-            ].apply(
-                lambda x:
-                calculate_score(
-                    x,
-                    keywords
+            st.warning(
+
+                "No opportunities found"
+
+            )
+
+            st.stop()
+
+
+
+        # 2. VERIFY LINKS
+
+
+        verification = []
+
+
+        for link in data[
+
+            "Official Application Link"
+
+        ]:
+
+
+            verification.append(
+
+                verify_link(
+
+                    link
+
                 )
+
             )
 
 
-            data.sort_values(
-                "Score",
-                ascending=False,
-                inplace=True
+
+        verification_df = pd.DataFrame(
+
+            verification
+
+        )
+
+
+
+        data = pd.concat(
+
+            [
+
+                data.reset_index(drop=True),
+
+                verification_df
+
+            ],
+
+            axis=1
+
+        )
+
+
+
+        # Keep only verified portals
+
+        data = data[
+
+            data["Status"]
+
+            ==
+
+            "Verified Official Portal"
+
+        ]
+
+
+
+        if data.empty:
+
+
+            st.warning(
+
+                "No verified official portals found"
+
             )
 
+            st.stop()
 
-        st.session_state.data = data
+
+
+        # 3. NLP MATCHING
+
+
+        data = match_opportunities(
+
+            data,
+
+            profile
+
+        )
+
+
+
+        st.session_state.results = data
+
 
 
 
@@ -141,7 +247,7 @@ if run:
 # DISPLAY RESULTS
 # -----------------------------------
 
-df = st.session_state.data
+df = st.session_state.results
 
 
 
@@ -149,113 +255,73 @@ if not df.empty:
 
 
     st.success(
-        f"{len(df)} opportunities found"
+
+        f"{len(df)} verified opportunities found"
+
     )
 
 
-    # Filters
 
-    col1,col2 = st.columns(2)
+    st.subheader(
 
+        "Recommended Opportunities"
 
-    with col1:
-
-        category = st.selectbox(
-            "Filter category",
-            [
-                "All"
-            ]
-            +
-            sorted(
-                df["Category"]
-                .unique()
-                .tolist()
-            )
-        )
-
-
-    with col2:
-
-        search = st.text_input(
-            "Search opportunity"
-        )
-
-
-
-    filtered = df.copy()
-
-
-
-    if category != "All":
-
-        filtered = filtered[
-            filtered["Category"]
-            ==
-            category
-        ]
-
-
-
-    if search:
-
-        filtered = filtered[
-            filtered.apply(
-                lambda row:
-                search.lower()
-                in
-                row.astype(str)
-                .str.lower()
-                .to_string(),
-
-                axis=1
-            )
-        ]
+    )
 
 
 
     st.dataframe(
-        filtered,
+
+        df,
+
         use_container_width=True
+
     )
 
 
 
-    # -----------------------------------
+    # --------------------------------
     # CSV DOWNLOAD
-    # -----------------------------------
+    # --------------------------------
 
-    csv = filtered.to_csv(
+
+    csv = df.to_csv(
+
         index=False
+
     )
+
 
 
     st.download_button(
 
-        label="⬇ Download CSV",
+        "⬇ Download CSV",
 
-        data=csv,
+        csv,
 
-        file_name=
-        "opportunities.csv",
+        "verified_opportunities.csv",
 
-        mime=
         "text/csv"
 
     )
 
 
 
-    # -----------------------------------
-    # PDF GENERATION
-    # -----------------------------------
+    # --------------------------------
+    # PDF REPORT
+    # --------------------------------
+
 
     def create_pdf(data):
+
 
         buffer = BytesIO()
 
 
         pdf = canvas.Canvas(
+
             buffer
+
         )
 
 
@@ -263,15 +329,22 @@ if not df.empty:
 
 
         pdf.setFont(
+
             "Helvetica",
+
             12
+
         )
 
 
         pdf.drawString(
+
             50,
+
             y,
-            "Opportunity Scraper Report"
+
+            "Official Opportunity Finder Report"
+
         )
 
 
@@ -281,21 +354,31 @@ if not df.empty:
 
         for _,row in data.iterrows():
 
+
             text = (
-                f"{row['Title']} | "
+
+                f"{row['Opportunity']} | "
+
                 f"{row['Category']} | "
-                f"{row['Deadline']}"
+
+                f"{row['Official Application Link']}"
+
             )
 
 
             pdf.drawString(
+
                 50,
+
                 y,
-                text[:100]
+
+                text[:120]
+
             )
 
 
-            y -= 20
+            y -= 30
+
 
 
             if y < 50:
@@ -316,22 +399,23 @@ if not df.empty:
 
 
 
-    pdf_file = create_pdf(
-        filtered
+
+    pdf = create_pdf(
+
+        df
+
     )
 
 
 
     st.download_button(
 
-        label="📄 Download PDF Report",
+        "📄 Download PDF Report",
 
-        data=pdf_file,
+        pdf,
 
-        file_name=
         "opportunity_report.pdf",
 
-        mime=
         "application/pdf"
 
     )
@@ -340,6 +424,9 @@ if not df.empty:
 
 else:
 
+
     st.info(
-        "Enter websites and click Start Scraping"
+
+        "Enter your profile and click Find Opportunities"
+
     )
