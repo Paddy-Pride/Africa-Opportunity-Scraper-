@@ -2,11 +2,11 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import re
-from datetime import datetime
+from urllib.parse import urljoin, urlparse
 
 
 # ---------------------------------------
-# USER AGENT
+# REQUEST SETTINGS
 # ---------------------------------------
 
 HEADERS = {
@@ -15,149 +15,206 @@ HEADERS = {
 }
 
 
+
+# ---------------------------------------
+# BLOCKED WEBSITES
+# ---------------------------------------
+
+BLOCKED_DOMAINS = [
+
+    "medium.com",
+    "linkedin.com",
+    "facebook.com",
+    "reddit.com",
+    "opportunitiesforafricans.com",
+    "scholarshiproar.com",
+    "scholarshipportal.com",
+    "weforum.org/blog",
+    "wordpress.com"
+
+]
+
+
+
 # ---------------------------------------
 # CLEAN TEXT
 # ---------------------------------------
 
 def clean_text(text):
-    """
-    Remove unwanted spaces and characters
-    """
 
     if not text:
         return ""
 
-    text = text.replace("\n", " ")
-    text = re.sub(r"\s+", " ", text)
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
 
     return text.strip()
 
 
 
 # ---------------------------------------
-# EXTRACT DEADLINE
+# CHECK OFFICIAL DOMAIN
 # ---------------------------------------
 
-def extract_deadline(text):
+def is_official_link(url):
 
-    if not text:
-        return "Not specified"
+    if not url:
+        return False
 
-    patterns = [
-        r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}",
-        r"\d{1,2}\s(January|February|March|April|May|June|July|August|September|October|November|December)\s\d{4}"
+
+    domain = urlparse(url).netloc.lower()
+
+
+    for blocked in BLOCKED_DOMAINS:
+
+        if blocked in domain:
+
+            return False
+
+
+    return True
+
+
+
+# ---------------------------------------
+# CHECK APPLICATION URL
+# ---------------------------------------
+
+def is_application_link(url):
+
+    if not url:
+
+        return False
+
+
+    keywords = [
+
+        "apply",
+        "application",
+        "register",
+        "registration",
+        "career",
+        "jobs",
+        "internship",
+        "scholarship",
+        "admission",
+        "portal"
+
     ]
 
-    for pattern in patterns:
 
-        match = re.search(
-            pattern,
-            text,
-            re.IGNORECASE
-        )
+    url = url.lower()
 
-        if match:
-            return match.group()
+
+    return any(
+        word in url
+        for word in keywords
+    )
+
+
+
+# ---------------------------------------
+# CATEGORY IDENTIFIER
+# ---------------------------------------
+
+def identify_category(text):
+
+    text = text.lower()
+
+
+    if "intern" in text:
+
+        return "Internship"
+
+
+    if "scholar" in text:
+
+        return "Scholarship"
+
+
+    if "fellow" in text:
+
+        return "Fellowship"
+
+
+    if "grant" in text:
+
+        return "Grant"
+
+
+    if "job" in text or "career" in text:
+
+        return "Job"
+
+
+    return "Opportunity"
+
+
+
+# ---------------------------------------
+# DEADLINE EXTRACTION
+# ---------------------------------------
+
+def find_deadline(text):
+
+    pattern = (
+
+        r"\b\d{1,2}"
+        r"[-/]"
+        r"\d{1,2}"
+        r"[-/]"
+        r"\d{2,4}\b"
+
+    )
+
+
+    result = re.search(
+        pattern,
+        text
+    )
+
+
+    if result:
+
+        return result.group()
+
+
+    months = (
+
+        "January|February|March|April|May|June|"
+        "July|August|September|October|November|December"
+
+    )
+
+
+    result = re.search(
+
+        rf"\d{{1,2}}\s({months})\s\d{{4}}",
+
+        text,
+
+        re.IGNORECASE
+
+    )
+
+
+    if result:
+
+        return result.group()
+
 
     return "Not specified"
 
 
 
 # ---------------------------------------
-# CATEGORY DETECTION
+# EXTRACT OPPORTUNITIES
 # ---------------------------------------
 
-def detect_category(text):
-
-    text = text.lower()
-
-
-    if any(word in text for word in [
-        "scholarship",
-        "funding",
-        "financial aid"
-    ]):
-        return "Scholarship"
-
-
-    elif any(word in text for word in [
-        "internship",
-        "attachment",
-        "trainee"
-    ]):
-        return "Internship"
-
-
-    elif any(word in text for word in [
-        "job",
-        "career",
-        "employment"
-    ]):
-        return "Job"
-
-
-    elif any(word in text for word in [
-        "fellowship",
-        "leadership program"
-    ]):
-        return "Fellowship"
-
-
-    elif any(word in text for word in [
-        "grant",
-        "competition",
-        "award"
-    ]):
-        return "Grant"
-
-
-    return "Other"
-
-
-
-# ---------------------------------------
-# RELEVANCE SCORE
-# ---------------------------------------
-
-def calculate_score(text, keywords):
-
-    if not text:
-        return 0
-
-
-    text = text.lower()
-
-    score = 0
-
-
-    for word in keywords:
-
-        if word.lower() in text:
-            score += 1
-
-
-    return score
-
-
-
-# ---------------------------------------
-# GENERIC WEBSITE SCRAPER
-# ---------------------------------------
-
-def scrape_website(url, keywords=None):
-
-    if keywords is None:
-
-        keywords = [
-            "technology",
-            "computer science",
-            "data science",
-            "ai",
-            "software",
-            "student",
-            "internship"
-        ]
-
+def scrape_website(url):
 
     opportunities = []
 
@@ -165,70 +222,110 @@ def scrape_website(url, keywords=None):
     try:
 
         response = requests.get(
+
             url,
+
             headers=HEADERS,
+
             timeout=15
+
         )
-
-
-        response.raise_for_status()
 
 
         soup = BeautifulSoup(
+
             response.text,
+
             "html.parser"
+
         )
 
 
-        links = soup.find_all("a")
+        page_text = clean_text(
+            soup.get_text()
+        )
+
+
+        links = soup.find_all(
+            "a"
+        )
 
 
         for link in links:
 
+
             title = clean_text(
-                link.get_text()
+                link.text
             )
 
 
-            href = link.get("href")
+            href = link.get(
+                "href"
+            )
 
 
-            if not title or not href:
+            if not href:
+
+                continue
+
+
+            href = urljoin(
+                url,
+                href
+            )
+
+
+            if not is_application_link(
+                href
+            ):
+
+                continue
+
+
+            if not is_official_link(
+                href
+            ):
+
                 continue
 
 
 
-            if href.startswith("/"):
-
-                href = url.rstrip("/") + href
-
-
-
-            description = title
-
-
             opportunity = {
 
-                "Title": title,
 
-                "Organization": url.split("//")[-1].split("/")[0],
+                "Opportunity":
 
-                "Description": description,
+                title,
 
-                "Deadline": extract_deadline(description),
 
-                "Category": detect_category(description),
+                "Organization":
 
-                "Location": "Not specified",
+                urlparse(url).netloc,
 
-                "Link": href,
 
-                "Source": url,
+                "Category":
 
-                "Score": calculate_score(
-                    description,
-                    keywords
-                )
+                identify_category(
+                    page_text
+                ),
+
+
+                "Deadline":
+
+                find_deadline(
+                    page_text
+                ),
+
+
+                "Official Application Link":
+
+                href,
+
+
+                "Verification":
+
+                "Verified"
+
 
             }
 
@@ -238,183 +335,117 @@ def scrape_website(url, keywords=None):
             )
 
 
-    except Exception as e:
+    except Exception as error:
+
 
         print(
-            f"Error scraping {url}: {e}"
+            error
         )
+
 
 
     return opportunities
 
 
 
-
 # ---------------------------------------
-# MULTIPLE SOURCES SCRAPER
+# MULTI SOURCE SCRAPER
 # ---------------------------------------
 
 def scrape_sources(urls):
 
-    all_results = []
+    results = []
 
 
     for url in urls:
 
+
         print(
-            f"Scraping {url}"
-        )
-
-
-        results = scrape_website(
+            "Checking:",
             url
         )
 
 
-        all_results.extend(
-            results
+        results.extend(
+
+            scrape_website(
+                url
+            )
+
         )
 
 
-    return clean_dataframe(
-        all_results
+    return clean_results(
+        results
     )
 
 
 
 # ---------------------------------------
-# CLEAN DATAFRAME
+# CLEAN RESULTS
 # ---------------------------------------
 
-def clean_dataframe(data):
+def clean_results(data):
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(
+        data
+    )
 
 
     if df.empty:
+
         return df
 
 
 
-    # Remove duplicates
-
     df.drop_duplicates(
-        subset=["Title"],
+
+        subset=[
+            "Official Application Link"
+        ],
+
         inplace=True
+
     )
 
 
-    # Remove empty titles
-
-    df = df[
-        df["Title"].str.len() > 3
-    ]
-
-
-    # Sort best matches
-
-    df.sort_values(
-        by="Score",
-        ascending=False,
-        inplace=True
+    return df.reset_index(
+        drop=True
     )
-
-
-    df.reset_index(
-        drop=True,
-        inplace=True
-    )
-
-
-    return df
 
 
 
 # ---------------------------------------
-# SAVE CSV
+# EXPORT CSV
 # ---------------------------------------
 
-def save_csv(df, filename):
+def export_csv(df):
 
-    df.to_csv(
-        filename,
+    return df.to_csv(
         index=False
     )
 
 
 
 # ---------------------------------------
-# PDF REPORT DATA
-# ---------------------------------------
-
-def generate_report_text(df):
-
-    report = []
-
-    report.append(
-        "OPPORTUNITY SCRAPER REPORT"
-    )
-
-    report.append(
-        str(datetime.now())
-    )
-
-    report.append(
-        "\n"
-    )
-
-
-    for index,row in df.iterrows():
-
-        report.append(
-            f"""
-Title:
-{row['Title']}
-
-Category:
-{row['Category']}
-
-Deadline:
-{row['Deadline']}
-
-Link:
-{row['Link']}
-
-Score:
-{row['Score']}
-
------------------------
-"""
-        )
-
-
-    return "\n".join(report)
-
-
-
-# ---------------------------------------
-# TEST RUN
+# TEST
 # ---------------------------------------
 
 if __name__ == "__main__":
 
 
-    websites = [
+    sources = [
 
-        "https://www.opportunitiesforafricans.com/",
+        "https://careers.microsoft.com/",
+
+        "https://www.un.org/development/desa/youth/"
 
     ]
 
 
     data = scrape_sources(
-        websites
+        sources
     )
 
 
-    print(data.head())
-
-
-    save_csv(
-        data,
-        "opportunities.csv"
-    )
+    print(data)
