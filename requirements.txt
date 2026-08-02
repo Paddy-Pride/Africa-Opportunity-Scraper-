@@ -10,3 +10,4 @@ fpdf2
 reportlab
 tqdm
 fake-useragent
+scikit-learn
