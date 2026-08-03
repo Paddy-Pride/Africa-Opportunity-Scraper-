@@ -2,6 +2,7 @@
 Sources module - Contains all source scrapers
 """
 
+from .base_scraper import BaseScraper
 from .african_union import AfricanUnionScraper
 from .united_nations import UnitedNationsScraper
 from .world_bank import WorldBankScraper
@@ -17,7 +18,9 @@ from .undp import UNDPScraper
 from .british_council import BritishCouncilScraper
 from .commonwealth import CommonwealthScraper
 
+# For backward compatibility
 __all__ = [
+    'BaseScraper',
     'AfricanUnionScraper',
     'UnitedNationsScraper',
     'WorldBankScraper',
