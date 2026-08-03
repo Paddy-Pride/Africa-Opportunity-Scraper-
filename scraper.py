@@ -6,33 +6,51 @@ import logging
 import concurrent.futures
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-import time
-from tenacity import retry, stop_after_attempt, wait_exponential
 import requests
 from bs4 import BeautifulSoup
 import os
 import sys
 
-# Add the sources directory to path if needed
+# Add the current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from sources import (
-    AfricanUnionScraper,
-    UnitedNationsScraper,
-    WorldBankScraper,
-    AfricanDevelopmentBankScraper,
-    MastercardScraper,
-    GoogleScraper,
-    MicrosoftScraper,
-    YouthHubScraper,
-    OpportunitiesForAfricaScraper,
-    UNICEFScraper,
-    UNESCOScraper,
-    UNDPScraper,
-    BritishCouncilScraper,
-    CommonwealthScraper
-)
 from sources.source_manager import SourceManager
+
+# Try to import scrapers
+try:
+    from sources import (
+        AfricanUnionScraper,
+        UnitedNationsScraper,
+        WorldBankScraper,
+        AfricanDevelopmentBankScraper,
+        MastercardScraper,
+        GoogleScraper,
+        MicrosoftScraper,
+        YouthHubScraper,
+        OpportunitiesForAfricaScraper,
+        UNICEFScraper,
+        UNESCOScraper,
+        UNDPScraper,
+        BritishCouncilScraper,
+        CommonwealthScraper
+    )
+except ImportError as e:
+    print(f"Warning: Some scrapers could not be imported: {e}")
+    # Define as None if import fails
+    AfricanUnionScraper = None
+    UnitedNationsScraper = None
+    WorldBankScraper = None
+    AfricanDevelopmentBankScraper = None
+    MastercardScraper = None
+    GoogleScraper = None
+    MicrosoftScraper = None
+    YouthHubScraper = None
+    OpportunitiesForAfricaScraper = None
+    UNICEFScraper = None
+    UNESCOScraper = None
+    UNDPScraper = None
+    BritishCouncilScraper = None
+    CommonwealthScraper = None
 
 logger = logging.getLogger(__name__)
 
@@ -43,28 +61,41 @@ class ScraperController:
     def __init__(self):
         """Initialize the scraper controller"""
         self.source_manager = SourceManager()
-        self.scrapers = {
-            'African Union': AfricanUnionScraper(),
-            'United Nations': UnitedNationsScraper(),
-            'World Bank': WorldBankScraper(),
-            'African Development Bank': AfricanDevelopmentBankScraper(),
-            'Mastercard Foundation': MastercardScraper(),
-            'Google': GoogleScraper(),
-            'Microsoft': MicrosoftScraper(),
-            'Youth Hub Africa': YouthHubScraper(),
-            'Opportunities For Africa': OpportunitiesForAfricaScraper(),
-            'UNICEF': UNICEFScraper(),
-            'UNESCO': UNESCOScraper(),
-            'UNDP': UNDPScraper(),
-            'British Council': BritishCouncilScraper(),
-            'Commonwealth': CommonwealthScraper()
-        }
+        self.scrapers = {}
+        self._init_scrapers()
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    def _init_scrapers(self):
+        """Initialize scrapers"""
+        scraper_map = {
+            'African Union': AfricanUnionScraper,
+            'United Nations': UnitedNationsScraper,
+            'World Bank': WorldBankScraper,
+            'African Development Bank': AfricanDevelopmentBankScraper,
+            'Mastercard Foundation': MastercardScraper,
+            'Google': GoogleScraper,
+            'Microsoft': MicrosoftScraper,
+            'Youth Hub Africa': YouthHubScraper,
+            'Opportunities For Africa': OpportunitiesForAfricaScraper,
+            'UNICEF': UNICEFScraper,
+            'UNESCO': UNESCOScraper,
+            'UNDP': UNDPScraper,
+            'British Council': BritishCouncilScraper,
+            'Commonwealth': CommonwealthScraper
+        }
+        
+        for name, scraper_class in scraper_map.items():
+            if scraper_class is not None:
+                try:
+                    self.scrapers[name] = scraper_class()
+                except Exception as e:
+                    logger.warning(f"Could not initialize {name} scraper: {e}")
+            else:
+                logger.warning(f"{name} scraper not available")
+    
     def scrape_source(self, source: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Scrape a single source
@@ -81,12 +112,20 @@ class ScraperController:
         logger.info(f"Scraping source: {source_name}")
         
         try:
+            opportunities = []
+            
             # Try to use built-in scraper first
             if source_name in self.scrapers:
-                scraper = self.scrapers[source_name]
-                opportunities = scraper.scrape()
-            else:
-                # Use generic scraper for custom sources
+                try:
+                    scraper = self.scrapers[source_name]
+                    opportunities = scraper.scrape()
+                    logger.info(f"Used built-in scraper for {source_name}")
+                except Exception as e:
+                    logger.error(f"Built-in scraper failed for {source_name}: {str(e)}")
+                    opportunities = []
+            
+            # If no opportunities from built-in scraper, try generic scrape
+            if not opportunities:
                 opportunities = self._generic_scrape(source_url)
             
             # Add source information
@@ -120,17 +159,13 @@ class ScraperController:
             
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Look for common patterns
-            # This is a simplified generic scraper - would need enhancement
-            # for specific website structures
-            
             # Find links that look like opportunities
             links = soup.find_all('a', href=True)
-            for link in links[:20]:  # Limit to 20 to avoid overload
+            for link in links[:20]:
                 href = link.get('href')
                 text = link.get_text(strip=True)
                 
-                if href and len(text) > 10:  # Simple filter
+                if href and len(text) > 10:
                     opportunity = {
                         'title': text[:200],
                         'organization': 'Unknown',
@@ -164,8 +199,11 @@ class ScraperController:
         sources_to_scrape = []
         
         # Get sources from database
-        db_sources = self.source_manager.get_enabled_sources()
-        sources_to_scrape.extend(db_sources)
+        try:
+            db_sources = self.source_manager.get_enabled_sources()
+            sources_to_scrape.extend(db_sources)
+        except Exception as e:
+            logger.error(f"Error getting sources from database: {str(e)}")
         
         # Add custom sources if provided
         if custom_sources:
@@ -189,7 +227,10 @@ class ScraperController:
                     all_opportunities.extend(opportunities)
                     
                     # Update last scraped time
-                    self.source_manager.update_source_scrape_time(source.get('id', 0))
+                    try:
+                        self.source_manager.update_source_scrape_time(source.get('id', 0))
+                    except Exception as e:
+                        logger.error(f"Error updating scrape time: {str(e)}")
                     
                 except Exception as e:
                     logger.error(f"Error scraping {source.get('name', 'Unknown')}: {str(e)}")
@@ -201,21 +242,13 @@ class ScraperController:
         return deduplicated
     
     def _deduplicate_opportunities(self, opportunities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Deduplicate opportunities by URL and title
-        
-        Args:
-            opportunities: List of opportunity dictionaries
-            
-        Returns:
-            Deduplicated list
-        """
+        """Deduplicate opportunities by URL and title"""
         seen = set()
         deduplicated = []
         
         for opp in opportunities:
             url = opp.get('official_url', '')
-            title = opp.get('title', '')[:50]  # Use first 50 chars for matching
+            title = opp.get('title', '')[:50]
             key = f"{url}:{title}"
             
             if key not in seen:
