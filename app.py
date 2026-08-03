@@ -1,14 +1,13 @@
-# app.py - Enhanced Comprehensive African Youth Opportunity Scraper
+# app.py - Comprehensive African Youth Opportunity Scraper (Fixed)
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime
 import re
 import time
 import random
-import json
-from urllib.parse import urljoin, urlparse
 import hashlib
+from urllib.parse import urljoin
 
 # Page configuration
 st.set_page_config(
@@ -85,12 +84,6 @@ st.markdown("""
         border-radius: 40px;
         padding: 0.5rem 1.5rem;
     }
-    .stSelectbox > div > div {
-        border-radius: 40px;
-    }
-    .stTextInput > div > div > input {
-        border-radius: 40px;
-    }
     .source-tag {
         background: #f0f4f8;
         padding: 0.1rem 0.5rem;
@@ -146,7 +139,7 @@ class EnhancedScraper:
         self.scraped_sources = {}
         
     def scrape_all_sources(self, progress_callback=None):
-        """Scrape from all configured sources with improved detection"""
+        """Scrape from all configured sources"""
         sources = self.get_enhanced_source_configs()
         total_sources = len(sources)
         successful_sources = 0
@@ -172,8 +165,7 @@ class EnhancedScraper:
                 if progress_callback:
                     progress_callback(i / total_sources, f"❌ Error scraping {source_name}")
             
-            # Random delay between requests
-            time.sleep(random.uniform(1.5, 3.5))
+            time.sleep(random.uniform(1, 2.5))
         
         if progress_callback:
             progress_callback(0.95, f"Deduplicating {len(self.all_opportunities)} opportunities...")
@@ -191,149 +183,84 @@ class EnhancedScraper:
         return unique
     
     def get_enhanced_source_configs(self):
-        """Get enhanced source configurations with multiple scraping strategies"""
+        """Get enhanced source configurations"""
         return {
-            # Major African Youth Opportunity Platforms - with multiple strategies
-            "Youth Opportunities": {
-                "urls": [
-                    "https://www.youthop.com/opportunities/africa",
-                    "https://www.youthop.com/opportunities/fellowships",
-                    "https://www.youthop.com/opportunities/scholarships",
-                    "https://www.youthop.com/opportunities/competitions"
-                ],
-                "strategies": [
-                    {"container": "div.opportunity-item", "title": "h3", "desc": "p.description", "date": "span.date", "location": "span.location"},
-                    {"container": "article.listing-item", "title": "h2", "desc": "div.excerpt", "date": "span.deadline", "location": "span.country"},
-                    {"container": "div.post-item", "title": "a", "desc": "p", "date": "time", "location": "span.region"}
-                ]
-            },
             "Scholarships for Africans": {
-                "urls": [
-                    "https://scholarshipsforafricans.com/"
-                ],
+                "urls": ["https://scholarshipsforafricans.com/"],
                 "strategies": [
                     {"container": "article", "title": "h2", "desc": "p", "date": "span.deadline", "location": "span.location"},
                     {"container": "div.post", "title": "h3", "desc": "div.excerpt", "date": "time", "location": "div.country"},
                     {"container": "div.scholarship-item", "title": "a", "desc": "div.summary", "date": "span.date", "location": "span.region"}
                 ]
             },
+            "Youth Opportunities": {
+                "urls": [
+                    "https://www.youthop.com/opportunities/africa",
+                    "https://www.youthop.com/opportunities/fellowships",
+                    "https://www.youthop.com/opportunities/scholarships"
+                ],
+                "strategies": [
+                    {"container": "div.opportunity-item", "title": "h3", "desc": "p.description", "date": "span.date", "location": "span.location"},
+                    {"container": "article.listing-item", "title": "h2", "desc": "div.excerpt", "date": "span.deadline", "location": "span.country"}
+                ]
+            },
             "Opportunity Desk": {
                 "urls": [
                     "https://opportunitydesk.org/category/opportunities/",
-                    "https://opportunitydesk.org/category/fellowships/",
-                    "https://opportunitydesk.org/category/scholarships/"
+                    "https://opportunitydesk.org/category/fellowships/"
                 ],
                 "strategies": [
                     {"container": "article", "title": "h2", "desc": "p", "date": "span.deadline", "location": "span.location"},
-                    {"container": "div.post", "title": "h3", "desc": "div.excerpt", "date": "time", "location": "div.country"},
-                    {"container": "div.entry", "title": "a", "desc": "div.summary", "date": "span.date", "location": "span.region"}
+                    {"container": "div.post", "title": "h3", "desc": "div.excerpt", "date": "time", "location": "div.country"}
                 ]
             },
             "African Development Bank": {
-                "urls": [
-                    "https://www.afdb.org/en/careers",
-                    "https://www.afdb.org/en/careers/current-vacancies"
-                ],
+                "urls": ["https://www.afdb.org/en/careers"],
                 "strategies": [
                     {"container": "div.job-listing", "title": "h3", "desc": "p", "date": "span.date", "location": "span.location"},
-                    {"container": "article.job", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"},
-                    {"container": "div.views-row", "title": "h2", "desc": "div.summary", "date": "span.deadline", "location": "span.region"}
+                    {"container": "article.job", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"}
                 ]
             },
             "UNESCO Africa": {
-                "urls": [
-                    "https://www.unesco.org/en/fieldoffice/africa",
-                    "https://en.unesco.org/fieldoffice/africa/opportunities"
-                ],
+                "urls": ["https://www.unesco.org/en/fieldoffice/africa"],
                 "strategies": [
                     {"container": "div.card", "title": "h2", "desc": "p", "date": "span.deadline", "location": "span.location"},
-                    {"container": "article", "title": "h3", "desc": "div.description", "date": "time", "location": "div.country"},
-                    {"container": "div.content-item", "title": "a", "desc": "div.excerpt", "date": "span.date", "location": "span.region"}
+                    {"container": "article", "title": "h3", "desc": "div.description", "date": "time", "location": "div.country"}
                 ]
             },
             "Mastercard Foundation": {
-                "urls": [
-                    "https://mastercardfdn.org/our-work/programs/",
-                    "https://mastercardfdn.org/opportunities/"
-                ],
+                "urls": ["https://mastercardfdn.org/our-work/programs/"],
                 "strategies": [
                     {"container": "div.program-item", "title": "h3", "desc": "p", "date": "span.deadline", "location": "span.location"},
-                    {"container": "div.card", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"},
-                    {"container": "article", "title": "h2", "desc": "div.summary", "date": "span.date", "location": "span.region"}
+                    {"container": "div.card", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"}
                 ]
             },
             "African Union": {
-                "urls": [
-                    "https://au.int/en/opportunities",
-                    "https://au.int/en/careers"
-                ],
+                "urls": ["https://au.int/en/opportunities"],
                 "strategies": [
                     {"container": "div.view-content", "title": "a", "desc": "p", "date": "span.deadline", "location": "span.location"},
-                    {"container": "article", "title": "h3", "desc": "div.description", "date": "time", "location": "div.country"},
-                    {"container": "div.listing", "title": "h2", "desc": "div.summary", "date": "span.date", "location": "span.region"}
-                ]
-            },
-            # Additional African Focused Sites
-            "African Leadership Academy": {
-                "urls": ["https://www.africanleadershipacademy.org/opportunities/"],
-                "strategies": [
-                    {"container": "div.opportunity", "title": "h3", "desc": "p", "date": "span.deadline", "location": "span.location"},
-                    {"container": "article", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"},
-                    {"container": "div.post", "title": "h2", "desc": "div.excerpt", "date": "span.date", "location": "span.region"}
+                    {"container": "article", "title": "h3", "desc": "div.description", "date": "time", "location": "div.country"}
                 ]
             },
             "YALI Network": {
                 "urls": ["https://yali.state.gov/opportunities/"],
                 "strategies": [
                     {"container": "div.opportunity", "title": "h3", "desc": "p", "date": "span.deadline", "location": "span.location"},
-                    {"container": "article", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"},
-                    {"container": "div.post", "title": "h2", "desc": "div.excerpt", "date": "span.date", "location": "span.region"}
+                    {"container": "article", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"}
                 ]
             },
             "UNDP Africa": {
-                "urls": [
-                    "https://www.undp.org/africa/careers",
-                    "https://www.undp.org/africa/opportunities"
-                ],
+                "urls": ["https://www.undp.org/africa/careers"],
                 "strategies": [
                     {"container": "div.job", "title": "h3", "desc": "p", "date": "span.deadline", "location": "span.location"},
-                    {"container": "article", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"},
-                    {"container": "div.opportunity", "title": "h2", "desc": "div.summary", "date": "span.date", "location": "span.region"}
-                ]
-            },
-            "World Bank Africa": {
-                "urls": ["https://www.worldbank.org/en/region/afr/opportunities"],
-                "strategies": [
-                    {"container": "div.opportunity", "title": "h3", "desc": "p", "date": "span.deadline", "location": "span.location"},
-                    {"container": "article", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"},
-                    {"container": "div.listing", "title": "h2", "desc": "div.summary", "date": "span.date", "location": "span.region"}
+                    {"container": "article", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"}
                 ]
             },
             "UNICEF Africa": {
-                "urls": [
-                    "https://www.unicef.org/africa/careers",
-                    "https://www.unicef.org/africa/opportunities"
-                ],
+                "urls": ["https://www.unicef.org/africa/careers"],
                 "strategies": [
                     {"container": "div.job", "title": "h3", "desc": "p", "date": "span.deadline", "location": "span.location"},
-                    {"container": "article", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"},
-                    {"container": "div.opportunity", "title": "h2", "desc": "div.summary", "date": "span.date", "location": "span.region"}
-                ]
-            },
-            "All Africa Jobs": {
-                "urls": ["https://www.allafricajobs.com/opportunities"],
-                "strategies": [
-                    {"container": "div.job-item", "title": "h3", "desc": "p", "date": "span.deadline", "location": "span.location"},
-                    {"container": "article", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"},
-                    {"container": "div.listing", "title": "h2", "desc": "div.summary", "date": "span.date", "location": "span.region"}
-                ]
-            },
-            "Africa Youth Employment": {
-                "urls": ["https://www.africayouthemployment.org/opportunities/"],
-                "strategies": [
-                    {"container": "div.opportunity", "title": "h3", "desc": "p", "date": "span.deadline", "location": "span.location"},
-                    {"container": "article", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"},
-                    {"container": "div.post", "title": "h2", "desc": "div.excerpt", "date": "span.date", "location": "span.region"}
+                    {"container": "article", "title": "a", "desc": "div.description", "date": "time", "location": "div.country"}
                 ]
             }
         }
@@ -346,13 +273,11 @@ class EnhancedScraper:
         
         for url in urls:
             try:
-                # Rotate user agents
                 self.session.headers.update({
                     'User-Agent': random.choice([
                         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0'
+                        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                     ])
                 })
                 
@@ -360,7 +285,6 @@ class EnhancedScraper:
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
                     
-                    # Try each strategy
                     for strategy in strategies:
                         container_selector = strategy.get("container", "")
                         title_selector = strategy.get("title", "")
@@ -368,20 +292,15 @@ class EnhancedScraper:
                         date_selector = strategy.get("date", "")
                         location_selector = strategy.get("location", "")
                         
-                        # Find containers
                         containers = soup.find_all(container_selector) if container_selector else []
                         
-                        # If no containers found with specific selector, try common ones
                         if not containers and container_selector:
-                            # Try to find any article or post divs
                             containers = soup.find_all(['article', 'div'], class_=re.compile(r'(post|entry|item|listing|opportunity|job|scholarship)'))
                         
                         for container in containers[:12]:
                             try:
-                                # Extract elements
                                 title_elem = container.find(title_selector) if title_selector else container.find(['h2', 'h3', 'a'])
                                 if not title_elem:
-                                    # Try finding any heading
                                     title_elem = container.find(['h1', 'h2', 'h3', 'h4'])
                                 
                                 if not title_elem:
@@ -391,28 +310,21 @@ class EnhancedScraper:
                                 if not title or len(title) < 5:
                                     continue
                                 
-                                # Description
                                 desc_elem = container.find(desc_selector) if desc_selector else container.find('p')
                                 description = desc_elem.get_text().strip() if desc_elem else "Opportunity in Africa"
                                 
-                                # Deadline
                                 date_elem = container.find(date_selector) if date_selector else container.find(['time', 'span'], class_=re.compile(r'(date|deadline|time)'))
                                 deadline = date_elem.get_text().strip() if date_elem else None
                                 
-                                # Location
                                 loc_elem = container.find(location_selector) if location_selector else container.find(['span', 'div'], class_=re.compile(r'(location|country|region)'))
                                 location = loc_elem.get_text().strip() if loc_elem else "Africa"
                                 
-                                # Find link
                                 link = None
                                 link_elem = container.find('a')
                                 if link_elem and link_elem.get('href'):
                                     link = urljoin(url, link_elem.get('href'))
                                 
-                                # Determine category
                                 category = self.detect_category_enhanced(title)
-                                
-                                # Determine region
                                 region = self.detect_region_enhanced(location + " " + title)
                                 
                                 opportunities.append({
@@ -441,7 +353,6 @@ class EnhancedScraper:
         """Enhanced category detection"""
         title_lower = title.lower()
         
-        # Priority categories
         if any(word in title_lower for word in ['fellowship', 'fellow']):
             return 'fellowship'
         elif any(word in title_lower for word in ['scholarship', 'scholar', 'tuition', 'fully funded']):
@@ -483,7 +394,6 @@ class EnhancedScraper:
         unique = []
         
         for opp in opportunities:
-            # Create unique key from title and source
             key = f"{opp.get('title', '')[:60]}_{opp.get('source', '')}"
             if key not in seen:
                 seen.add(key)
@@ -492,11 +402,11 @@ class EnhancedScraper:
         return unique
     
     def get_enhanced_fallback_data(self):
-        """Enhanced fallback data with diverse opportunities"""
+        """Enhanced fallback data"""
         return [
             {
                 'title': 'African Youth Leadership Fellowship 2026',
-                'description': 'A 6-month intensive leadership program for young African leaders focused on policy, advocacy, and sustainable development across the continent. Fully funded including travel, accommodation, and stipend.',
+                'description': 'A 6-month intensive leadership program for young African leaders focused on policy, advocacy, and sustainable development across the continent.',
                 'category': 'fellowship',
                 'region': 'All Africa',
                 'country': 'Various',
@@ -507,7 +417,7 @@ class EnhancedScraper:
             },
             {
                 'title': 'Pan-African Scholarship for STEM Education 2026',
-                'description': 'Full tuition scholarship for African students pursuing undergraduate and graduate degrees in Science, Technology, Engineering, and Mathematics at partner universities across Africa and abroad.',
+                'description': 'Full tuition scholarship for African students pursuing undergraduate and graduate degrees in Science, Technology, Engineering, and Mathematics.',
                 'category': 'scholarship',
                 'region': 'All Africa',
                 'country': 'Various',
@@ -518,7 +428,7 @@ class EnhancedScraper:
             },
             {
                 'title': 'Digital Innovation Internship Program - East Africa',
-                'description': 'Paid 3-month internship program for recent graduates in East Africa to work with leading tech startups, innovation hubs, and digital companies across Kenya, Tanzania, and Uganda.',
+                'description': 'Paid 3-month internship program for recent graduates in East Africa to work with leading tech startups and innovation hubs.',
                 'category': 'internship',
                 'region': 'East Africa',
                 'country': 'Kenya, Tanzania, Uganda',
@@ -529,7 +439,7 @@ class EnhancedScraper:
             },
             {
                 'title': 'African Arts and Culture Grant 2026',
-                'description': 'Funding opportunities for emerging artists, cultural practitioners, and heritage preservation projects across Southern Africa. Grants up to $10,000 available.',
+                'description': 'Funding opportunities for emerging artists, cultural practitioners, and heritage preservation projects across Southern Africa.',
                 'category': 'grant',
                 'region': 'Southern Africa',
                 'country': 'South Africa, Zimbabwe, Zambia',
@@ -540,7 +450,7 @@ class EnhancedScraper:
             },
             {
                 'title': 'African Green Innovation Competition 2026',
-                'description': 'Pan-African competition for climate tech solutions and sustainable innovations. Winners receive $10,000 funding, mentorship, and incubation support.',
+                'description': 'Pan-African competition for climate tech solutions. Winners receive funding, mentorship, and incubation support.',
                 'category': 'competition',
                 'region': 'All Africa',
                 'country': 'Pan-African',
@@ -551,7 +461,7 @@ class EnhancedScraper:
             },
             {
                 'title': 'African Union Youth Fellowship Program 2026-27',
-                'description': 'Prestigious fellowship program for young professionals to work with the African Union on continental development initiatives, policy research, and implementation of Agenda 2063.',
+                'description': 'Prestigious fellowship program for young professionals to work with the African Union on continental development initiatives.',
                 'category': 'fellowship',
                 'region': 'All Africa',
                 'country': 'Various',
@@ -562,46 +472,13 @@ class EnhancedScraper:
             },
             {
                 'title': 'Women in African Tech Scholarship Program 2026',
-                'description': 'Scholarship program specifically for women from West Africa pursuing careers in technology, engineering, and computer science. Includes mentorship and internship placement.',
+                'description': 'Scholarship program for women from West Africa pursuing careers in technology, engineering, and computer science.',
                 'category': 'scholarship',
                 'region': 'West Africa',
                 'country': 'Nigeria, Ghana, Senegal',
                 'deadline': '2026-09-15',
                 'source': 'Women in Tech Africa (Fallback)',
                 'url': 'https://example.com/women-tech',
-                'scraped_at': datetime.now().isoformat()
-            },
-            {
-                'title': 'Climate Action Internship for African Youth 2026',
-                'description': 'Remote internship program for African youth to work on climate action projects, policy research, sustainable development initiatives, and environmental advocacy.',
-                'category': 'internship',
-                'region': 'All Africa',
-                'country': 'Remote',
-                'deadline': '2026-11-01',
-                'source': 'Climate Africa Initiative (Fallback)',
-                'url': 'https://example.com/climate-internship',
-                'scraped_at': datetime.now().isoformat()
-            },
-            {
-                'title': 'African Development Bank Young Professionals Program',
-                'description': 'Highly competitive program for young African professionals to work at the African Development Bank. Two-year program with rotations across departments.',
-                'category': 'fellowship',
-                'region': 'All Africa',
-                'country': 'Various',
-                'deadline': '2026-12-01',
-                'source': 'African Development Bank (Fallback)',
-                'url': 'https://example.com/afdb-yp',
-                'scraped_at': datetime.now().isoformat()
-            },
-            {
-                'title': 'UNESCO Africa Education Scholarship 2026',
-                'description': 'Scholarship program for African students pursuing education degrees with focus on educational policy, curriculum development, and technology in education.',
-                'category': 'scholarship',
-                'region': 'All Africa',
-                'country': 'Various',
-                'deadline': '2026-10-15',
-                'source': 'UNESCO Africa (Fallback)',
-                'url': 'https://example.com/unesco-education',
                 'scraped_at': datetime.now().isoformat()
             }
         ]
@@ -681,11 +558,17 @@ with st.sidebar:
     if st.session_state.scraped_sources:
         st.markdown("---")
         st.markdown("### 📰 Sources")
-        for source, count in st.session_state.scraped_sources.items():
-            if count > 0:
-                st.caption(f"✅ {source}: {count}")
-            else:
-                st.caption(f"❌ {source}: {count}")
+        successful_sources = {k: v for k, v in st.session_state.scraped_sources.items() if v > 0}
+        failed_sources = {k: v for k, v in st.session_state.scraped_sources.items() if v == 0}
+        
+        for source, count in successful_sources.items():
+            st.caption(f"✅ {source}: {count}")
+        
+        if failed_sources:
+            st.markdown("---")
+            st.markdown("### ❌ No results from:")
+            for source in failed_sources.keys():
+                st.caption(f"• {source}")
     
     st.markdown("---")
     
@@ -730,4 +613,69 @@ if search_term:
     search_lower = search_term.lower()
     filtered_opps = [
         o for o in filtered_opps 
-        if search_lower in o.get('title
+        if search_lower in o.get('title', '').lower() 
+        or search_lower in o.get('description', '').lower()
+        or search_lower in o.get('source', '').lower()
+        or search_lower in o.get('country', '').lower()
+    ]
+
+st.markdown(f"### Found {len(filtered_opps)} opportunities")
+
+# Display source summary
+if st.session_state.scraped_sources:
+    successful = {k: v for k, v in st.session_state.scraped_sources.items() if v > 0}
+    if successful:
+        st.caption(f"📊 Successfully scraped from: {', '.join([f'{k} ({v})' for k, v in successful.items()])}")
+
+if not filtered_opps:
+    st.info("No opportunities match your filters. Try adjusting them or refresh the data.")
+else:
+    for idx, opp in enumerate(filtered_opps):
+        # Find original index
+        original_idx = None
+        for i, o in enumerate(st.session_state.opportunities):
+            if o.get('title') == opp.get('title') and o.get('source') == opp.get('source'):
+                original_idx = i
+                break
+        
+        with st.container():
+            st.markdown(f"""
+            <div class="opportunity-card">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div class="card-title">{opp.get('title', 'Untitled Opportunity')}</div>
+                    <div>
+                        <span class="card-badge">{opp.get('category', 'opportunity')}</span>
+                    </div>
+                </div>
+                <div class="card-meta">
+                    <span>📍 {opp.get('country', opp.get('region', 'Africa'))}</span>
+                    <span>🏷️ {opp.get('category', 'opportunity')}</span>
+                    <span class="source-tag">📰 {opp.get('source', 'Unknown')}</span>
+                </div>
+                <div class="card-desc">{opp.get('description', 'No description available')[:300]}...</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                    <span class="deadline-badge">📅 {opp.get('deadline', 'No deadline')}</span>
+                    <div>
+            """, unsafe_allow_html=True)
+            
+            if original_idx is not None:
+                if original_idx in st.session_state.saved:
+                    if st.button("⭐ Saved", key=f"saved_{idx}"):
+                        st.session_state.saved.remove(original_idx)
+                        st.rerun()
+                else:
+                    if st.button("☆ Save", key=f"save_{idx}"):
+                        st.session_state.saved.add(original_idx)
+                        st.rerun()
+            
+            st.markdown("""
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+# Footer
+st.markdown("---")
+st.caption("🌍 AfriYouth · Scraping 10+ African youth opportunity sources including Scholarships for Africans, Youth Opportunities, Opportunity Desk, African Development Bank, UNESCO, Mastercard Foundation, African Union, YALI, UNDP, and UNICEF")
+if st.session_state.last_scrape:
+    st.caption(f"Last updated: {st.session_state.last_scrape.strftime('%Y-%m-%d %H:%M:%S')}")
