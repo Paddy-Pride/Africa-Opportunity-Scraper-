@@ -1,18 +1,27 @@
-streamlit
+# requirements.txt
+# Core web scraping and data processing
 beautifulsoup4
 requests
 lxml
-pandas
-sqlalchemy
-reportlab
-scikit-learn
-python-dotenv
-tenacity
-cachetools
-openpyxl
-urllib3
-Flask
-Flask-CORS
 html5lib
+
+# Web application framework
+streamlit
+
+# Data manipulation and visualization
+pandas
+plotly
+
+# PDF generation
+reportlab
+
+# Additional utilities
+python-dateutil
+urllib3
 charset-normalizer
-certifi
+
+# For better scraping performance (optional)
+selenium
+webdriver-manager
+fake-useragent
+cloudscraper
