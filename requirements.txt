@@ -11,3 +11,8 @@ tenacity
 cachetools
 openpyxl
 urllib3
+Flask
+Flask-CORS
+html5lib
+charset-normalizer
+certifi
