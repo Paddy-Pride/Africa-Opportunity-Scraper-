@@ -5,20 +5,73 @@ import re
 from urllib.parse import urljoin, urlparse
 
 
-# ---------------------------------------
-# REQUEST SETTINGS
-# ---------------------------------------
+# =====================================
+# AFRICAN OPPORTUNITY SOURCES
+# =====================================
+
+OPPORTUNITY_SOURCES = [
+
+    {
+        "name": "African Union",
+        "url": "https://au.int/en/jobs"
+    },
+
+    {
+        "name": "United Nations Careers",
+        "url": "https://careers.un.org/"
+    },
+
+    {
+        "name": "World Bank Careers",
+        "url": "https://www.worldbank.org/en/about/careers"
+    },
+
+    {
+        "name": "African Development Bank",
+        "url": "https://www.afdb.org/en/about-us/careers"
+    },
+
+    {
+        "name": "Mastercard Foundation",
+        "url": "https://mastercardfdn.org/all/scholarships/"
+    },
+
+    {
+        "name": "Google Careers",
+        "url": "https://careers.google.com/"
+    },
+
+    {
+        "name": "Microsoft Careers",
+        "url": "https://careers.microsoft.com/"
+    },
+
+    {
+        "name": "Youth Hub Africa",
+        "url": "https://opportunities.youthhubafrica.org/"
+    }
+
+]
+
+
+
+# =====================================
+# HEADERS
+# =====================================
 
 HEADERS = {
-    "User-Agent": 
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+
+    "User-Agent":
+
+    "Mozilla/5.0"
+
 }
 
 
 
-# ---------------------------------------
-# BLOCKED WEBSITES
-# ---------------------------------------
+# =====================================
+# BLOCKED SOURCES
+# =====================================
 
 BLOCKED_DOMAINS = [
 
@@ -26,46 +79,49 @@ BLOCKED_DOMAINS = [
     "linkedin.com",
     "facebook.com",
     "reddit.com",
-    "opportunitiesforafricans.com",
-    "scholarshiproar.com",
-    "scholarshipportal.com",
-    "weforum.org/blog",
-    "wordpress.com"
+    "wordpress.com",
+    "blogspot.com"
 
 ]
 
 
 
-# ---------------------------------------
+# =====================================
 # CLEAN TEXT
-# ---------------------------------------
+# =====================================
 
 def clean_text(text):
 
     if not text:
+
         return ""
 
     text = re.sub(
+
         r"\s+",
+
         " ",
+
         text
+
     )
 
     return text.strip()
 
 
 
-# ---------------------------------------
-# CHECK OFFICIAL DOMAIN
-# ---------------------------------------
+# =====================================
+# DOMAIN CHECK
+# =====================================
 
-def is_official_link(url):
+def valid_domain(url):
 
-    if not url:
-        return False
+    domain = urlparse(
 
+        url
 
-    domain = urlparse(url).netloc.lower()
+    ).netloc.lower()
+
 
 
     for blocked in BLOCKED_DOMAINS:
@@ -79,29 +135,29 @@ def is_official_link(url):
 
 
 
-# ---------------------------------------
-# CHECK APPLICATION URL
-# ---------------------------------------
+# =====================================
+# FIND APPLICATION LINK
+# =====================================
 
 def is_application_link(url):
-
-    if not url:
-
-        return False
-
 
     keywords = [
 
         "apply",
+
         "application",
+
         "register",
-        "registration",
+
         "career",
+
         "jobs",
+
         "internship",
-        "scholarship",
-        "admission",
-        "portal"
+
+        "program",
+
+        "scholarship"
 
     ]
 
@@ -110,32 +166,35 @@ def is_application_link(url):
 
 
     return any(
+
         word in url
+
         for word in keywords
+
     )
 
 
 
-# ---------------------------------------
-# CATEGORY IDENTIFIER
-# ---------------------------------------
+# =====================================
+# CATEGORY
+# =====================================
 
-def identify_category(text):
+def detect_category(text):
 
     text = text.lower()
 
 
-    if "intern" in text:
+    if "internship" in text:
 
         return "Internship"
 
 
-    if "scholar" in text:
+    if "scholarship" in text:
 
         return "Scholarship"
 
 
-    if "fellow" in text:
+    if "fellowship" in text:
 
         return "Fellowship"
 
@@ -145,89 +204,34 @@ def identify_category(text):
         return "Grant"
 
 
-    if "job" in text or "career" in text:
+    if "job" in text:
 
         return "Job"
 
 
-    return "Opportunity"
+    return "Youth Opportunity"
 
 
 
-# ---------------------------------------
-# DEADLINE EXTRACTION
-# ---------------------------------------
 
-def find_deadline(text):
+# =====================================
+# SCRAPE SINGLE SOURCE
+# =====================================
 
-    pattern = (
+def scrape_source(source):
 
-        r"\b\d{1,2}"
-        r"[-/]"
-        r"\d{1,2}"
-        r"[-/]"
-        r"\d{2,4}\b"
-
-    )
-
-
-    result = re.search(
-        pattern,
-        text
-    )
-
-
-    if result:
-
-        return result.group()
-
-
-    months = (
-
-        "January|February|March|April|May|June|"
-        "July|August|September|October|November|December"
-
-    )
-
-
-    result = re.search(
-
-        rf"\d{{1,2}}\s({months})\s\d{{4}}",
-
-        text,
-
-        re.IGNORECASE
-
-    )
-
-
-    if result:
-
-        return result.group()
-
-
-    return "Not specified"
-
-
-
-# ---------------------------------------
-# EXTRACT OPPORTUNITIES
-# ---------------------------------------
-
-def scrape_website(url):
-
-    opportunities = []
+    results = []
 
 
     try:
 
         response = requests.get(
 
-            url,
+            source["url"],
 
             headers=HEADERS,
 
-            timeout=15
+            timeout=20
 
         )
 
@@ -241,13 +245,10 @@ def scrape_website(url):
         )
 
 
-        page_text = clean_text(
-            soup.get_text()
-        )
-
-
         links = soup.find_all(
+
             "a"
+
         )
 
 
@@ -255,12 +256,16 @@ def scrape_website(url):
 
 
             title = clean_text(
-                link.text
+
+                link.get_text()
+
             )
 
 
             href = link.get(
+
                 "href"
+
             )
 
 
@@ -269,126 +274,150 @@ def scrape_website(url):
                 continue
 
 
+
             href = urljoin(
-                url,
+
+                source["url"],
+
                 href
+
             )
+
+
+
+            if len(title) < 5:
+
+                continue
+
+
+
+            if not valid_domain(
+
+                href
+
+            ):
+
+                continue
+
 
 
             if not is_application_link(
+
                 href
+
             ):
 
                 continue
 
 
-            if not is_official_link(
-                href
-            ):
 
-                continue
+            results.append(
 
+                {
 
+                    "Opportunity":
 
-            opportunity = {
-
-
-                "Opportunity":
-
-                title,
+                    title,
 
 
-                "Organization":
+                    "Organization":
 
-                urlparse(url).netloc,
-
-
-                "Category":
-
-                identify_category(
-                    page_text
-                ),
+                    source["name"],
 
 
-                "Deadline":
+                    "Category":
 
-                find_deadline(
-                    page_text
-                ),
+                    detect_category(
 
+                        title
 
-                "Official Application Link":
-
-                href,
+                    ),
 
 
-                "Verification":
+                    "Official Application Link":
 
-                "Verified"
-
-
-            }
+                    href,
 
 
-            opportunities.append(
-                opportunity
+                    "Source":
+
+                    source["url"]
+
+                }
+
             )
 
 
-    except Exception as error:
+    except Exception as e:
+
+        print(
+
+            source["name"],
+
+            e
+
+        )
+
+
+    return results
+
+
+
+
+# =====================================
+# SCRAPE ALL SOURCES
+# =====================================
+
+def scrape_sources():
+
+    all_results = []
+
+
+    for source in OPPORTUNITY_SOURCES:
 
 
         print(
-            error
+
+            "Scanning:",
+
+            source["name"]
+
+        )
+
+
+        results = scrape_source(
+
+            source
+
         )
 
 
+        all_results.extend(
 
-    return opportunities
-
-
-
-# ---------------------------------------
-# MULTI SOURCE SCRAPER
-# ---------------------------------------
-
-def scrape_sources(urls):
-
-    results = []
-
-
-    for url in urls:
-
-
-        print(
-            "Checking:",
-            url
-        )
-
-
-        results.extend(
-
-            scrape_website(
-                url
-            )
+            results
 
         )
+
 
 
     return clean_results(
-        results
+
+        all_results
+
     )
 
 
 
-# ---------------------------------------
-# CLEAN RESULTS
-# ---------------------------------------
+# =====================================
+# CLEAN DATA
+# =====================================
 
 def clean_results(data):
 
     df = pd.DataFrame(
+
         data
+
     )
 
 
@@ -401,7 +430,9 @@ def clean_results(data):
     df.drop_duplicates(
 
         subset=[
+
             "Official Application Link"
+
         ],
 
         inplace=True
@@ -410,42 +441,25 @@ def clean_results(data):
 
 
     return df.reset_index(
+
         drop=True
+
     )
 
 
 
-# ---------------------------------------
-# EXPORT CSV
-# ---------------------------------------
-
-def export_csv(df):
-
-    return df.to_csv(
-        index=False
-    )
-
-
-
-# ---------------------------------------
+# =====================================
 # TEST
-# ---------------------------------------
+# =====================================
 
 if __name__ == "__main__":
 
 
-    sources = [
-
-        "https://careers.microsoft.com/",
-
-        "https://www.un.org/development/desa/youth/"
-
-    ]
+    opportunities = scrape_sources()
 
 
-    data = scrape_sources(
-        sources
+    print(
+
+        opportunities.head()
+
     )
-
-
-    print(data)
