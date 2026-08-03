@@ -66,7 +66,7 @@ class SourceManager:
                 verification_details TEXT,
                 match_score REAL,
                 date_scraped TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (source_id) REFERENCES sources(id)
             )
         """)
@@ -93,79 +93,22 @@ class SourceManager:
     def _init_default_sources(self) -> None:
         """Initialize default sources"""
         default_sources = [
-            {
-                'name': 'African Union',
-                'url': 'https://www.africanunion.org/opportunities',
-                'category': 'Grants'
-            },
-            {
-                'name': 'United Nations',
-                'url': 'https://www.un.org/opportunities',
-                'category': 'Jobs'
-            },
-            {
-                'name': 'World Bank',
-                'url': 'https://www.worldbank.org/opportunities',
-                'category': 'Jobs'
-            },
-            {
-                'name': 'African Development Bank',
-                'url': 'https://www.afdb.org/opportunities',
-                'category': 'Jobs'
-            },
-            {
-                'name': 'Mastercard Foundation',
-                'url': 'https://www.mastercardfdn.org/opportunities',
-                'category': 'Grants'
-            },
-            {
-                'name': 'Google',
-                'url': 'https://careers.google.com',
-                'category': 'Jobs'
-            },
-            {
-                'name': 'Microsoft',
-                'url': 'https://careers.microsoft.com',
-                'category': 'Jobs'
-            },
-            {
-                'name': 'Youth Hub Africa',
-                'url': 'https://youthhubafrica.org/opportunities',
-                'category': 'Education'
-            },
-            {
-                'name': 'Opportunities For Africa',
-                'url': 'https://opportunitiesforafrica.com',
-                'category': 'Education'
-            },
-            {
-                'name': 'UNICEF',
-                'url': 'https://www.unicef.org/careers',
-                'category': 'Jobs'
-            },
-            {
-                'name': 'UNESCO',
-                'url': 'https://www.unesco.org/careers',
-                'category': 'Jobs'
-            },
-            {
-                'name': 'UNDP',
-                'url': 'https://www.undp.org/careers',
-                'category': 'Jobs'
-            },
-            {
-                'name': 'British Council',
-                'url': 'https://www.britishcouncil.org/opportunities',
-                'category': 'Education'
-            },
-            {
-                'name': 'Commonwealth',
-                'url': 'https://thecommonwealth.org/opportunities',
-                'category': 'Grants'
-            }
+            {'name': 'African Union', 'url': 'https://www.africanunion.org', 'category': 'Grants'},
+            {'name': 'United Nations', 'url': 'https://www.un.org', 'category': 'Jobs'},
+            {'name': 'World Bank', 'url': 'https://www.worldbank.org', 'category': 'Jobs'},
+            {'name': 'African Development Bank', 'url': 'https://www.afdb.org', 'category': 'Jobs'},
+            {'name': 'Mastercard Foundation', 'url': 'https://www.mastercardfdn.org', 'category': 'Grants'},
+            {'name': 'Google', 'url': 'https://careers.google.com', 'category': 'Jobs'},
+            {'name': 'Microsoft', 'url': 'https://careers.microsoft.com', 'category': 'Jobs'},
+            {'name': 'Youth Hub Africa', 'url': 'https://youthhubafrica.org', 'category': 'Education'},
+            {'name': 'Opportunities For Africa', 'url': 'https://opportunitiesforafrica.com', 'category': 'Education'},
+            {'name': 'UNICEF', 'url': 'https://www.unicef.org', 'category': 'Jobs'},
+            {'name': 'UNESCO', 'url': 'https://www.unesco.org', 'category': 'Jobs'},
+            {'name': 'UNDP', 'url': 'https://www.undp.org', 'category': 'Jobs'},
+            {'name': 'British Council', 'url': 'https://www.britishcouncil.org', 'category': 'Education'},
+            {'name': 'Commonwealth', 'url': 'https://thecommonwealth.org', 'category': 'Grants'}
         ]
         
-        # Add default sources if table is empty
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -185,25 +128,13 @@ class SourceManager:
         conn.close()
     
     def add_source(self, source_data: Dict[str, Any]) -> Optional[int]:
-        """
-        Add a new source
-        
-        Args:
-            source_data: Source data dictionary
-            
-        Returns:
-            Source ID if successful, None otherwise
-        """
+        """Add a new source"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # Check if source already exists
             cursor.execute("SELECT id FROM sources WHERE url = ?", (source_data.get('url'),))
-            existing = cursor.fetchone()
-            
-            if existing:
-                logger.warning(f"Source already exists: {source_data.get('url')}")
+            if cursor.fetchone():
                 return None
             
             cursor.execute("""
@@ -230,61 +161,35 @@ class SourceManager:
             return None
     
     def get_all_sources(self) -> List[Dict[str, Any]]:
-        """
-        Get all sources
-        
-        Returns:
-            List of source dictionaries
-        """
+        """Get all sources"""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        cursor.execute("""
-            SELECT * FROM sources ORDER BY name
-        """)
-        
+        cursor.execute("SELECT * FROM sources ORDER BY name")
         sources = [dict(row) for row in cursor.fetchall()]
         conn.close()
         
         return sources
     
     def get_enabled_sources(self) -> List[Dict[str, Any]]:
-        """
-        Get enabled sources
-        
-        Returns:
-            List of enabled source dictionaries
-        """
+        """Get enabled sources"""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        cursor.execute("""
-            SELECT * FROM sources WHERE enabled = 1 ORDER BY name
-        """)
-        
+        cursor.execute("SELECT * FROM sources WHERE enabled = 1 ORDER BY name")
         sources = [dict(row) for row in cursor.fetchall()]
         conn.close()
         
         return sources
     
     def update_source(self, source_id: int, updates: Dict[str, Any]) -> bool:
-        """
-        Update a source
-        
-        Args:
-            source_id: Source ID
-            updates: Updates to apply
-            
-        Returns:
-            Boolean indicating success
-        """
+        """Update a source"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # Build update query
             set_clause = ", ".join([f"{key} = ?" for key in updates.keys()])
             values = list(updates.values()) + [source_id]
             
@@ -305,15 +210,7 @@ class SourceManager:
             return False
     
     def delete_source(self, source_id: int) -> bool:
-        """
-        Delete a source
-        
-        Args:
-            source_id: Source ID
-            
-        Returns:
-            Boolean indicating success
-        """
+        """Delete a source"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -330,34 +227,18 @@ class SourceManager:
             return False
     
     def source_exists(self, url: str) -> bool:
-        """
-        Check if source exists
-        
-        Args:
-            url: Source URL
-            
-        Returns:
-            Boolean indicating existence
-        """
+        """Check if source exists"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         cursor.execute("SELECT id FROM sources WHERE url = ?", (url,))
         exists = cursor.fetchone() is not None
-        
         conn.close()
+        
         return exists
     
     def update_source_scrape_time(self, source_id: int) -> bool:
-        """
-        Update source's last scraped time
-        
-        Args:
-            source_id: Source ID
-            
-        Returns:
-            Boolean indicating success
-        """
+        """Update source's last scraped time"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -377,60 +258,18 @@ class SourceManager:
             logger.error(f"Error updating scrape time: {str(e)}")
             return False
     
-    def log_scrape_history(self, source_id: int, opportunities_found: int, 
-                           errors: Optional[str] = None, duration: float = 0) -> bool:
-        """
-        Log scrape history
-        
-        Args:
-            source_id: Source ID
-            opportunities_found: Number of opportunities found
-            errors: Error messages
-            duration: Scrape duration in seconds
-            
-        Returns:
-            Boolean indicating success
-        """
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                INSERT INTO scrape_history (source_id, opportunities_found, errors, duration_seconds)
-                VALUES (?, ?, ?, ?)
-            """, (source_id, opportunities_found, errors, duration))
-            
-            conn.commit()
-            conn.close()
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error logging scrape history: {str(e)}")
-            return False
-    
     def save_scrape_results(self, opportunities: List[Dict[str, Any]]) -> bool:
-        """
-        Save scraped opportunities to database
-        
-        Args:
-            opportunities: List of opportunity dictionaries
-            
-        Returns:
-            Boolean indicating success
-        """
+        """Save scraped opportunities to database"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
             for opp in opportunities:
-                # Get source ID
                 source_name = opp.get('source', 'Unknown')
                 cursor.execute("SELECT id FROM sources WHERE name = ?", (source_name,))
                 source_row = cursor.fetchone()
                 source_id = source_row[0] if source_row else None
                 
-                # Check if opportunity already exists
                 cursor.execute("""
                     SELECT id FROM opportunities 
                     WHERE official_url = ? AND title = ?
@@ -468,15 +307,7 @@ class SourceManager:
             return False
     
     def get_verified_opportunities(self, limit: int = 20) -> List[Dict[str, Any]]:
-        """
-        Get verified opportunities
-        
-        Args:
-            limit: Maximum number of opportunities
-            
-        Returns:
-            List of verified opportunity dictionaries
-        """
+        """Get verified opportunities"""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -494,12 +325,7 @@ class SourceManager:
         return opportunities
     
     def get_all_opportunities(self) -> List[Dict[str, Any]]:
-        """
-        Get all opportunities
-        
-        Returns:
-            List of opportunity dictionaries
-        """
+        """Get all opportunities"""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -514,12 +340,7 @@ class SourceManager:
         return opportunities
     
     def get_stats(self) -> Dict[str, Any]:
-        """
-        Get database statistics
-        
-        Returns:
-            Dictionary of statistics
-        """
+        """Get database statistics"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -541,15 +362,7 @@ class SourceManager:
         }
     
     def count_opportunities_by_source(self, source_id: int) -> int:
-        """
-        Count opportunities by source
-        
-        Args:
-            source_id: Source ID
-            
-        Returns:
-            Number of opportunities
-        """
+        """Count opportunities by source"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -564,16 +377,7 @@ class SourceManager:
     
     def filter_opportunities(self, opportunities: List[Dict[str, Any]], 
                             search_term: str) -> List[Dict[str, Any]]:
-        """
-        Filter opportunities by search term
-        
-        Args:
-            opportunities: List of opportunities
-            search_term: Search term
-            
-        Returns:
-            Filtered list
-        """
+        """Filter opportunities by search term"""
         if not search_term:
             return opportunities
         
