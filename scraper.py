@@ -10,6 +10,11 @@ import time
 from tenacity import retry, stop_after_attempt, wait_exponential
 import requests
 from bs4 import BeautifulSoup
+import os
+import sys
+
+# Add the sources directory to path if needed
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from sources import (
     AfricanUnionScraper,
