@@ -10,6 +10,7 @@ import requests
 from bs4 import BeautifulSoup
 import os
 import sys
+import re
 
 # Add the current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -36,7 +37,6 @@ try:
     )
 except ImportError as e:
     print(f"Warning: Some scrapers could not be imported: {e}")
-    # Define as None if import fails
     AfricanUnionScraper = None
     UnitedNationsScraper = None
     WorldBankScraper = None
@@ -128,6 +128,9 @@ class ScraperController:
             if not opportunities:
                 opportunities = self._generic_scrape(source_url)
             
+            # Filter out non-opportunity items
+            opportunities = self._filter_opportunities(opportunities)
+            
             # Add source information
             for opp in opportunities:
                 opp['source'] = source_name
@@ -140,6 +143,50 @@ class ScraperController:
         except Exception as e:
             logger.error(f"Error scraping {source_name}: {str(e)}")
             return []
+    
+    def _filter_opportunities(self, opportunities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Filter out non-opportunity items
+        
+        Args:
+            opportunities: List of opportunities to filter
+            
+        Returns:
+            Filtered list
+        """
+        # Keywords that indicate this is NOT an opportunity
+        exclude_keywords = [
+            'skip to', 'navigation', 'menu', 'footer', 'header', 
+            'search', 'login', 'register', 'sign up', 'sign in',
+            'privacy policy', 'terms of service', 'cookie', 
+            'about us', 'contact us', 'help', 'faq',
+            'get involved', 'donate', 'support us', 'volunteer',
+            'our projects', 'our strategy', 'global presence',
+            'member states', 'people we serve', 'impact stories',
+            'skip navigation', 'skip to content', 'skip to main'
+        ]
+        
+        filtered = []
+        
+        for opp in opportunities:
+            title = opp.get('title', '').lower()
+            description = opp.get('description', '').lower()
+            
+            # Skip if title is too short (likely not an opportunity)
+            if len(title) < 10:
+                continue
+            
+            # Skip if it's a navigation or menu item
+            is_excluded = False
+            for keyword in exclude_keywords:
+                if keyword in title or keyword in description:
+                    is_excluded = True
+                    break
+            
+            if not is_excluded:
+                filtered.append(opp)
+        
+        return filtered
     
     def _generic_scrape(self, url: str) -> List[Dict[str, Any]]:
         """
@@ -159,31 +206,129 @@ class ScraperController:
             
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Find links that look like opportunities
-            links = soup.find_all('a', href=True)
-            for link in links[:20]:
-                href = link.get('href')
-                text = link.get_text(strip=True)
-                
-                if href and len(text) > 10:
-                    opportunity = {
-                        'title': text[:200],
-                        'organization': 'Unknown',
-                        'category': 'General',
-                        'country': 'Africa',
-                        'deadline': 'N/A',
-                        'description': text[:500],
-                        'official_url': href if href.startswith('http') else requests.compat.urljoin(url, href),
-                        'source': 'Custom',
-                        'verified': False,
-                        'date_scraped': datetime.now().isoformat()
-                    }
-                    opportunities.append(opportunity)
+            # Look for common opportunity patterns
+            # Find articles, posts, or list items that might be opportunities
+            content_selectors = [
+                'article', 'div.post', 'div.opportunity', 'div.job', 
+                'div.listing', 'li', '.item', '.result', '.card'
+            ]
+            
+            for selector in content_selectors:
+                items = soup.select(selector)
+                for item in items:
+                    # Look for title and link
+                    title_elem = item.find(['h2', 'h3', 'h4'])
+                    link_elem = item.find('a')
+                    
+                    if title_elem and link_elem:
+                        title = title_elem.get_text(strip=True)
+                        href = link_elem.get('href')
+                        
+                        # Skip if title is too short or looks like navigation
+                        if len(title) < 10 or self._is_navigation(title):
+                            continue
+                        
+                        # Get description
+                        description = item.get_text(strip=True)[:500]
+                        
+                        # Build URL
+                        if href:
+                            if href.startswith('http'):
+                                full_url = href
+                            else:
+                                full_url = requests.compat.urljoin(url, href)
+                        else:
+                            full_url = url
+                        
+                        # Only add if it looks like an opportunity
+                        if self._is_opportunity_text(title, description):
+                            opportunity = {
+                                'title': title[:200],
+                                'organization': 'Unknown',
+                                'category': 'General',
+                                'country': 'Africa',
+                                'deadline': 'N/A',
+                                'description': description,
+                                'official_url': full_url,
+                                'source': 'Custom',
+                                'verified': False,
+                                'date_scraped': datetime.now().isoformat()
+                            }
+                            opportunities.append(opportunity)
+            
+            # If we found nothing with specific selectors, try a broader approach
+            if not opportunities:
+                # Find all links with significant text
+                links = soup.find_all('a', href=True)
+                for link in links:
+                    text = link.get_text(strip=True)
+                    href = link.get('href')
+                    
+                    if len(text) > 20 and self._is_opportunity_text(text, ''):
+                        if href:
+                            if href.startswith('http'):
+                                full_url = href
+                            else:
+                                full_url = requests.compat.urljoin(url, href)
+                        else:
+                            full_url = url
+                        
+                        opportunity = {
+                            'title': text[:200],
+                            'organization': 'Unknown',
+                            'category': 'General',
+                            'country': 'Africa',
+                            'deadline': 'N/A',
+                            'description': text[:500],
+                            'official_url': full_url,
+                            'source': 'Custom',
+                            'verified': False,
+                            'date_scraped': datetime.now().isoformat()
+                        }
+                        opportunities.append(opportunity)
             
         except Exception as e:
             logger.error(f"Generic scrape failed for {url}: {str(e)}")
         
         return opportunities
+    
+    def _is_navigation(self, text: str) -> bool:
+        """Check if text looks like navigation"""
+        nav_keywords = ['home', 'about', 'contact', 'menu', 'navigation', 'search', 
+                       'login', 'register', 'sign up', 'sign in', 'privacy', 'terms']
+        text_lower = text.lower()
+        for keyword in nav_keywords:
+            if keyword in text_lower:
+                return True
+        return False
+    
+    def _is_opportunity_text(self, title: str, description: str) -> bool:
+        """Check if text looks like an opportunity"""
+        # Keywords that indicate this is an opportunity
+        opportunity_keywords = [
+            'opportunity', 'program', 'scholarship', 'fellowship', 'internship',
+            'grant', 'funding', 'training', 'workshop', 'conference', 'award',
+            'prize', 'competition', 'apply', 'application', 'call for', 'proposal',
+            'position', 'vacancy', 'career', 'job', 'recruitment', 'hiring',
+            'graduate', 'undergraduate', 'phd', 'master', 'postgraduate',
+            'research', 'innovation', 'leadership', 'mentorship', 'exchange'
+        ]
+        
+        text = (title + ' ' + description).lower()
+        
+        for keyword in opportunity_keywords:
+            if keyword in text:
+                return True
+        
+        # If it has application-related patterns
+        if 'apply' in text or 'application' in text:
+            return True
+        
+        # If it has date patterns (deadlines)
+        if re.search(r'\b(deadline|due date|closing date)\b', text, re.I):
+            return True
+        
+        return False
     
     def scrape_all(self, custom_sources: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
         """
