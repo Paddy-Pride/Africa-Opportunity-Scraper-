@@ -393,3 +393,16 @@ class SourceManager:
                 filtered.append(opp)
         
         return filtered
+def clear_all_opportunities(self) -> bool:
+    """Clear all opportunities from the database"""
+    try:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM opportunities")
+        conn.commit()
+        conn.close()
+        logger.info("Cleared all opportunities")
+        return True
+    except Exception as e:
+        logger.error(f"Error clearing opportunities: {str(e)}")
+        return False
