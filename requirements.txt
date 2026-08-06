@@ -1,35 +1,12 @@
-# .github/workflows/deploy.yml
-name: Deploy to Streamlit
-
-on:
-  push:
-    branches: [ main ]
-  schedule:
-    - cron: '0 */6 * * *'  # Run every 6 hours
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    
-    - name: Install dependencies
-      run: |
-        pip install -r requirements.txt
-    
-    - name: Run scraper
-      run: |
-        python -c "from app import AfricanYouthScraper; scraper = AfricanYouthScraper(); scraper.scrape_all()"
-    
-    - name: Deploy to Streamlit
-      env:
-        STREAMLIT_TOKEN: ${{ secrets.STREAMLIT_TOKEN }}
-      run: |
-        # Deploy command depends on your hosting service
-        echo "Deployment step here"
+streamlit
+beautifulsoup4
+requests
+lxml
+pandas
+reportlab
+scikit-learn
+numpy
+python-dateutil
+urllib3
+tenacity
+sqlalchemy
