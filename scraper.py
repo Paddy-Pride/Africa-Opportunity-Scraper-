@@ -5,10 +5,8 @@ Enterprise-grade web scraping with automatic source discovery and verification
 
 import logging
 import sqlite3
-import json
 import re
-import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Dict, Optional, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse, urljoin
@@ -18,7 +16,6 @@ import random
 import requests
 from bs4 import BeautifulSoup
 from tenacity import retry, stop_after_attempt, wait_exponential
-import pandas as pd
 
 # Configure logging
 logging.basicConfig(
@@ -110,18 +107,6 @@ class DatabaseManager:
             )
         """)
         
-        # User profiles
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_profiles (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT UNIQUE,
-                profile_text TEXT,
-                keywords TEXT,
-                created_at TEXT,
-                updated_at TEXT
-            )
-        """)
-        
         conn.commit()
         
         # Add default sources if empty
@@ -138,7 +123,6 @@ class DatabaseManager:
             ('African Union', 'https://www.au.int/en/youth', 'Government', 'Africa'),
             ('United Nations', 'https://careers.un.org', 'Government', 'Global'),
             ('UNICEF', 'https://www.unicef.org/careers', 'Internship', 'Global'),
-            ('UNESCO', 'https://en.unesco.org/careers', 'Education', 'Global'),
             ('UNDP', 'https://www.undp.org/careers', 'Employment', 'Global'),
             ('World Bank', 'https://www.worldbank.org/en/about/careers', 'Employment', 'Global'),
             ('African Development Bank', 'https://www.afdb.org/en/careers', 'Employment', 'Africa'),
@@ -153,13 +137,9 @@ class DatabaseManager:
             
             # Regional African Organizations
             ('East African Community', 'https://www.eac.int/opportunities', 'Government', 'East Africa'),
-            ('ECOWAS', 'https://www.ecowas.int/careers', 'Government', 'West Africa'),
-            ('SADC', 'https://www.sadc.int/opportunities', 'Government', 'Southern Africa'),
             
             # Youth Focused
             ('Youth Hub Africa', 'https://youthhubafrica.org', 'Youth', 'Africa'),
-            ('Opportunities For Africans', 'https://opportunitiesforafricans.com', 'Education', 'Africa'),
-            ('African Youth Initiative', 'https://www.africanyouth.org', 'Youth', 'Africa'),
             
             # Cultural/Educational
             ('British Council', 'https://www.britishcouncil.org/opportunities', 'Education', 'Africa'),
@@ -169,16 +149,10 @@ class DatabaseManager:
             ('Brighter Monday', 'https://www.brightermonday.co.ke', 'Employment', 'East Africa'),
             ('Jobberman', 'https://www.jobberman.com', 'Employment', 'Nigeria'),
             ('MyJobMag', 'https://www.myjobmag.com', 'Employment', 'Nigeria'),
-            ('CareerPoint', 'https://www.careerpoint.co.za', 'Employment', 'South Africa'),
             
             # Development Organizations
             ('USAID', 'https://www.usaid.gov/careers', 'Development', 'Global'),
             ('GIZ', 'https://www.giz.de/en/aboutgiz/careers.html', 'Development', 'Global'),
-            ('Afreximbank', 'https://www.afreximbank.com/careers', 'Finance', 'Africa'),
-            
-            # Research & Policy
-            ('African Capacity Building Foundation', 'https://www.acbf-pact.org', 'Research', 'Africa'),
-            ('Institute for Development Studies', 'https://www.ids.ac.uk', 'Research', 'Africa'),
         ]
         
         conn = self.get_connection()
@@ -330,44 +304,35 @@ class DatabaseManager:
         conn.close()
         return opportunities
     
-    def get_opportunities_by_country(self, country: str) -> List[Dict]:
-        """Get opportunities by country"""
+    def get_statistics(self) -> Dict:
+        """Get overall statistics"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
-        cursor.execute("""
-            SELECT id, title, organization, category, country, deadline,
-                   description, official_url, source_name, verified, match_score
-            FROM opportunities
-            WHERE country LIKE ? OR region LIKE ?
-            ORDER BY created_at DESC
-        """, (f'%{country}%', f'%{country}%'))
+        stats = {}
         
-        opportunities = [dict(row) for row in cursor.fetchall()]
+        # Total opportunities
+        cursor.execute("SELECT COUNT(*) FROM opportunities")
+        stats['total_opportunities'] = cursor.fetchone()[0]
+        
+        # Verified opportunities
+        cursor.execute("SELECT COUNT(*) FROM opportunities WHERE verified = 1")
+        stats['verified'] = cursor.fetchone()[0]
+        
+        # Active sources
+        cursor.execute("SELECT COUNT(*) FROM sources WHERE is_active = 1")
+        stats['active_sources'] = cursor.fetchone()[0]
+        
+        # Categories
+        cursor.execute("SELECT category, COUNT(*) FROM opportunities GROUP BY category ORDER BY COUNT(*) DESC")
+        stats['categories'] = [dict(row) for row in cursor.fetchall()]
+        
+        # Countries
+        cursor.execute("SELECT country, COUNT(*) FROM opportunities WHERE country IS NOT NULL AND country != '' GROUP BY country ORDER BY COUNT(*) DESC LIMIT 10")
+        stats['top_countries'] = [dict(row) for row in cursor.fetchall()]
+        
         conn.close()
-        return opportunities
-    
-    def search_opportunities(self, query: str) -> List[Dict]:
-        """Search opportunities by keyword"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        search_term = f'%{query}%'
-        cursor.execute("""
-            SELECT id, title, organization, category, country, deadline,
-                   description, official_url, source_name, verified, match_score
-            FROM opportunities
-            WHERE title LIKE ? 
-               OR description LIKE ? 
-               OR organization LIKE ?
-               OR category LIKE ?
-               OR country LIKE ?
-            ORDER BY created_at DESC
-        """, (search_term, search_term, search_term, search_term, search_term))
-        
-        opportunities = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return opportunities
+        return stats
     
     def toggle_source(self, source_id: int) -> bool:
         """Toggle source active status"""
@@ -397,56 +362,6 @@ class DatabaseManager:
         conn.commit()
         conn.close()
         return True
-    
-    def update_source(self, source_id: int, name: str, url: str, category: str, country: str) -> bool:
-        """Update source details"""
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            now = datetime.now().isoformat()
-            
-            cursor.execute("""
-                UPDATE sources 
-                SET name = ?, url = ?, category = ?, country = ?, updated_at = ?
-                WHERE id = ?
-            """, (name, url, category, country, now, source_id))
-            
-            conn.commit()
-            conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error updating source: {str(e)}")
-            return False
-    
-    def get_statistics(self) -> Dict:
-        """Get overall statistics"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        stats = {}
-        
-        # Total opportunities
-        cursor.execute("SELECT COUNT(*) FROM opportunities")
-        stats['total_opportunities'] = cursor.fetchone()[0]
-        
-        # Verified opportunities
-        cursor.execute("SELECT COUNT(*) FROM opportunities WHERE verified = 1")
-        stats['verified'] = cursor.fetchone()[0]
-        
-        # Active sources
-        cursor.execute("SELECT COUNT(*) FROM sources WHERE is_active = 1")
-        stats['active_sources'] = cursor.fetchone()[0]
-        
-        # Categories
-        cursor.execute("SELECT category, COUNT(*) FROM opportunities GROUP BY category ORDER BY COUNT(*) DESC")
-        stats['categories'] = [dict(row) for row in cursor.fetchall()]
-        
-        # Countries
-        cursor.execute("SELECT country, COUNT(*) FROM opportunities GROUP BY country ORDER BY COUNT(*) DESC LIMIT 10")
-        stats['top_countries'] = [dict(row) for row in cursor.fetchall()]
-        
-        conn.close()
-        return stats
 
 
 class OpportunityScraper:
@@ -461,15 +376,28 @@ class OpportunityScraper:
             'Accept-Language': 'en-US,en;q=0.5',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
         })
         self.timeout = 30
-        self.max_retries = 3
         
-        # Regional keywords for detection
+        # Keywords that indicate a real opportunity
+        self.opportunity_keywords = [
+            'apply', 'opportunity', 'job', 'career', 'vacancy', 'position',
+            'internship', 'fellowship', 'scholarship', 'trainee', 'apprenticeship',
+            'graduate', 'entry-level', 'program', 'volunteer', 'recruitment',
+            'hiring', 'opening', 'posting', 'application', 'candidate'
+        ]
+        
+        # Words that indicate navigation or non-opportunity content
+        self.navigation_keywords = [
+            'login', 'sign in', 'register', 'about', 'contact', 'faq', 'privacy',
+            'terms', 'cookie', 'policy', 'careers|', 'frequently asked', 'view all',
+            'english', 'francais', 'espanol', 'home', 'menu', 'footer', 'copyright'
+        ]
+        
+        # African countries for detection
         self.african_countries = [
             'Algeria', 'Angola', 'Benin', 'Botswana', 'Burkina Faso', 'Burundi',
-            'Cabo Verde', 'Cameroon', 'Central African Republic', 'Chad',
+            'Cameroon', 'Cabo Verde', 'Central African Republic', 'Chad',
             'Comoros', 'Congo', 'Djibouti', 'Egypt', 'Equatorial Guinea',
             'Eritrea', 'Eswatini', 'Ethiopia', 'Gabon', 'Gambia', 'Ghana',
             'Guinea', 'Guinea-Bissau', 'Ivory Coast', 'Kenya', 'Lesotho',
@@ -479,14 +407,6 @@ class OpportunityScraper:
             'Sierra Leone', 'Somalia', 'South Africa', 'South Sudan', 'Sudan',
             'Tanzania', 'Togo', 'Tunisia', 'Uganda', 'Zambia', 'Zimbabwe'
         ]
-        
-        self.african_regions = {
-            'East Africa': ['Kenya', 'Tanzania', 'Uganda', 'Rwanda', 'Burundi', 'South Sudan', 'Ethiopia', 'Eritrea', 'Somalia', 'Djibouti'],
-            'West Africa': ['Nigeria', 'Ghana', 'Ivory Coast', 'Senegal', 'Mali', 'Guinea', 'Burkina Faso', 'Benin', 'Togo', 'Sierra Leone', 'Liberia'],
-            'Southern Africa': ['South Africa', 'Botswana', 'Zambia', 'Zimbabwe', 'Mozambique', 'Namibia', 'Angola', 'Malawi', 'Lesotho', 'Eswatini'],
-            'North Africa': ['Egypt', 'Algeria', 'Morocco', 'Tunisia', 'Libya', 'Sudan'],
-            'Central Africa': ['Cameroon', 'Congo', 'Gabon', 'Central African Republic', 'Chad']
-        }
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def fetch_url(self, url: str) -> Optional[requests.Response]:
@@ -515,121 +435,35 @@ class OpportunityScraper:
             
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Try different extraction methods
-            extracted = self._extract_opportunities_generic(soup, source)
+            # Extract opportunities from the page
+            opportunities = self._extract_opportunities(soup, source)
             
-            if extracted:
-                opportunities.extend(extracted)
+            # Remove navigation and irrelevant items
+            opportunities = self._filter_opportunities(opportunities, source)
             
-            # If generic extraction found nothing, try specific patterns
-            if not opportunities:
-                extracted = self._extract_opportunities_specific(soup, source)
-                opportunities.extend(extracted)
-            
-            # If still nothing, try deep scraping
-            if not opportunities:
-                extracted = self._extract_opportunities_deep(soup, source)
-                opportunities.extend(extracted)
-            
-            # Clean and validate opportunities
-            validated = []
+            # Add source information
             for opp in opportunities:
-                if self._validate_opportunity(opp):
-                    opp['source_id'] = source['id']
-                    opp['source_name'] = source['name']
-                    opp['scrape_timestamp'] = datetime.now().isoformat()
-                    validated.append(opp)
+                opp['source_id'] = source['id']
+                opp['source_name'] = source['name']
+                opp['scrape_timestamp'] = datetime.now().isoformat()
             
-            logger.info(f"Found {len(validated)} validated opportunities from {source['name']}")
-            return validated, errors
+            logger.info(f"Found {len(opportunities)} opportunities from {source['name']}")
+            return opportunities, errors
             
         except Exception as e:
             logger.error(f"Error scraping {source['name']}: {str(e)}")
             errors += 1
             return opportunities, errors
     
-    def _extract_opportunities_generic(self, soup: BeautifulSoup, source: Dict) -> List[Dict]:
-        """Generic opportunity extraction using common patterns"""
+    def _extract_opportunities(self, soup: BeautifulSoup, source: Dict) -> List[Dict]:
+        """Extract opportunities from the page"""
         opportunities = []
         
-        # Common selectors for opportunity listings
-        selectors = [
-            'div.job, div.opportunity, div.position, div.vacancy',
-            'div.listing, div.posting, div.openings',
-            'li.job-item, li.opportunity-item, li.position-item',
-            'article.job, article.opportunity',
-            'tr.job-row, tr.opportunity-row',
-            'div[class*="job"], div[class*="opportunity"], div[class*="position"]',
-            'div[class*="listing"], div[class*="posting"]'
-        ]
-        
-        for selector in selectors:
-            elements = soup.select(selector)
-            if elements:
-                for elem in elements[:20]:
-                    opp = self._parse_opportunity_element(elem, source)
-                    if opp:
-                        opportunities.append(opp)
-                if opportunities:
-                    break
-        
-        return opportunities
-    
-    def _extract_opportunities_specific(self, soup: BeautifulSoup, source: Dict) -> List[Dict]:
-        """Extract opportunities using specific patterns for known sources"""
-        opportunities = []
-        
-        # Check for specific source patterns
-        source_name = source['name'].lower()
-        
-        if 'google' in source_name:
-            # Google careers pattern
-            elements = soup.find_all('div', class_='section')
-            for elem in elements:
-                opp = self._parse_opportunity_element(elem, source)
-                if opp:
-                    opportunities.append(opp)
-        
-        elif 'linkedin' in source_name:
-            # LinkedIn job pattern
-            elements = soup.find_all('li', class_='jobs-search-results__list-item')
-            for elem in elements:
-                opp = self._parse_opportunity_element(elem, source)
-                if opp:
-                    opportunities.append(opp)
-        
-        elif 'united nations' in source_name or 'un.org' in source_name:
-            # UN careers pattern
-            elements = soup.find_all('div', class_='job-listing')
-            for elem in elements:
-                opp = self._parse_opportunity_element(elem, source)
-                if opp:
-                    opportunities.append(opp)
-        
-        elif 'mastercard' in source_name:
-            # Mastercard pattern
-            elements = soup.find_all('div', class_='opportunity-card')
-            for elem in elements:
-                opp = self._parse_opportunity_element(elem, source)
-                if opp:
-                    opportunities.append(opp)
-        
-        return opportunities
-    
-    def _extract_opportunities_deep(self, soup: BeautifulSoup, source: Dict) -> List[Dict]:
-        """Deep extraction finding any link that might be an opportunity"""
-        opportunities = []
-        
-        # Find all links with opportunity-related keywords
-        opportunity_keywords = [
-            'apply', 'opportunity', 'job', 'career', 'vacancy', 'position',
-            'internship', 'fellowship', 'scholarship', 'trainee', 'apprenticeship',
-            'graduate', 'entry-level', 'youth', 'volunteer', 'program'
-        ]
-        
+        # Find all links on the page
         links = soup.find_all('a', href=True)
         
-        for link in links[:50]:
+        # Look for links that might be opportunities
+        for link in links:
             try:
                 text = link.get_text().strip()
                 href = link.get('href', '')
@@ -637,31 +471,54 @@ class OpportunityScraper:
                 if not text or not href:
                     continue
                 
-                # Check if link text or URL contains keywords
+                # Skip if text or href contains navigation keywords
                 text_lower = text.lower()
                 href_lower = href.lower()
                 
-                is_opportunity = any(kw in text_lower for kw in opportunity_keywords) or \
-                               any(kw in href_lower for kw in opportunity_keywords)
+                is_navigation = any(kw in text_lower for kw in self.navigation_keywords) or \
+                               any(kw in href_lower for kw in self.navigation_keywords)
+                
+                if is_navigation:
+                    continue
+                
+                # Skip very short text (likely icons or buttons)
+                if len(text) < 8:
+                    continue
+                
+                # Check if this looks like an opportunity
+                is_opportunity = any(kw in text_lower for kw in self.opportunity_keywords) or \
+                                any(kw in href_lower for kw in self.opportunity_keywords)
                 
                 if not is_opportunity:
                     continue
                 
-                # Clean URL
+                # Build absolute URL
                 if href.startswith('/'):
                     href = urljoin(source['url'], href)
                 elif not href.startswith('http'):
                     href = urljoin(source['url'], '/' + href)
                 
-                # Get description from parent or surrounding text
+                # Skip if URL is just the base domain or a fragment
+                if href == source['url'] or href.endswith('#') or 'javascript:' in href:
+                    continue
+                
+                # Get description from parent
+                description = ""
                 parent = link.parent
-                description = ''
                 if parent:
-                    desc_text = parent.get_text().strip()
-                    # Remove the link text from description
-                    desc_text = desc_text.replace(text, '').strip()
-                    if len(desc_text) > 50:
-                        description = desc_text[:500]
+                    # Try to get description from parent elements
+                    desc_elem = parent.find(['p', 'div'], class_=['description', 'summary', 'body'])
+                    if desc_elem:
+                        description = desc_elem.get_text().strip()
+                    else:
+                        # Get surrounding text
+                        parent_text = parent.get_text().strip()
+                        if len(parent_text) > len(text) + 10:
+                            description = parent_text.replace(text, '').strip()
+                
+                # Limit description
+                if description:
+                    description = description[:500]
                 
                 opportunity = {
                     'title': text[:200],
@@ -674,96 +531,71 @@ class OpportunityScraper:
                     'deadline': self._extract_deadline(text + description)
                 }
                 
-                if self._validate_opportunity(opportunity):
-                    opportunities.append(opportunity)
+                opportunities.append(opportunity)
                     
             except Exception as e:
-                logger.debug(f"Error in deep extraction: {str(e)}")
+                logger.debug(f"Error extracting opportunity: {str(e)}")
                 continue
         
-        return opportunities
+        # Remove duplicates by URL
+        seen_urls = set()
+        unique_opportunities = []
+        for opp in opportunities:
+            url = opp.get('official_url', '')
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique_opportunities.append(opp)
+        
+        return unique_opportunities
     
-    def _parse_opportunity_element(self, element, source: Dict) -> Optional[Dict]:
-        """Parse a single opportunity element"""
-        try:
-            # Find title
-            title_elem = element.find(['a', 'h1', 'h2', 'h3', 'h4', 'span'], 
-                                     class_=['title', 'job-title', 'position-title', 'opportunity-title'])
-            if not title_elem:
-                title_elem = element.find('a')
+    def _filter_opportunities(self, opportunities: List[Dict], source: Dict) -> List[Dict]:
+        """Filter out irrelevant opportunities"""
+        filtered = []
+        
+        for opp in opportunities:
+            # Skip if title is too short
+            if len(opp.get('title', '')) < 5:
+                continue
             
-            if not title_elem:
-                return None
+            # Skip if title is mostly numbers or special characters
+            title = opp.get('title', '')
+            if re.match(r'^[\d\s\W]+$', title):
+                continue
             
-            title = title_elem.get_text().strip()
-            if not title or len(title) < 5:
-                return None
+            # Skip if URL is a login or registration page
+            url = opp.get('official_url', '').lower()
+            if 'login' in url or 'signin' in url or 'register' in url:
+                continue
             
-            # Find URL
-            url_elem = element.find('a')
-            if not url_elem and title_elem.name == 'a':
-                url_elem = title_elem
+            # Skip if URL is a file download (PDF, DOC, etc.)
+            if url.endswith(('.pdf', '.doc', '.docx', '.xls', '.xlsx')):
+                continue
             
-            url = url_elem.get('href') if url_elem else None
-            if not url:
-                return None
+            # Skip if description contains only navigation text
+            desc = opp.get('description', '').lower()
+            if desc and len(desc) < 20:
+                # Check if description is just a repeat of title
+                if desc.strip() == opp.get('title', '').lower().strip():
+                    continue
             
-            # Make absolute URL
-            if url.startswith('/'):
-                url = urljoin(source['url'], url)
-            elif not url.startswith('http'):
-                url = urljoin(source['url'], '/' + url)
-            
-            # Find description
-            desc_elem = element.find(['p', 'div'], class_=['description', 'summary', 'body', 'content'])
-            description = desc_elem.get_text().strip() if desc_elem else ''
-            if not description:
-                # Try to get surrounding text
-                text = element.get_text().strip()
-                # Remove title from text
-                description = text.replace(title, '').strip()[:500]
-            
-            # Find organization
-            org_elem = element.find(['span', 'div'], class_=['organization', 'company', 'employer'])
-            organization = org_elem.get_text().strip() if org_elem else source['name']
-            
-            # Find location
-            loc_elem = element.find(['span', 'div'], class_=['location', 'place', 'country'])
-            location = loc_elem.get_text().strip() if loc_elem else ''
-            
-            # Combine all text for analysis
-            full_text = f"{title} {description} {organization} {location}"
-            
-            opportunity = {
-                'title': title[:200],
-                'official_url': url,
-                'description': description[:2000],
-                'organization': organization[:200],
-                'category': self._detect_category(full_text),
-                'country': self._detect_country(full_text) or source.get('country', 'Africa'),
-                'region': self._detect_region(full_text),
-                'deadline': self._extract_deadline(full_text)
-            }
-            
-            return opportunity
-            
-        except Exception as e:
-            logger.debug(f"Error parsing opportunity element: {str(e)}")
-            return None
+            filtered.append(opp)
+        
+        # Limit to reasonable number
+        return filtered[:50]
     
     def _detect_category(self, text: str) -> str:
         """Detect opportunity category from text"""
         text_lower = text.lower()
         
         categories = {
-            'Internship': ['intern', 'internship', 'trainee', 'training', 'apprentice'],
-            'Scholarship': ['scholarship', 'scholar', 'research', 'academic', 'study'],
-            'Fellowship': ['fellow', 'fellowship', 'leadership', 'mentorship'],
-            'Employment': ['job', 'career', 'employment', 'position', 'vacancy', 'recruitment'],
-            'Volunteer': ['volunteer', 'voluntary', 'community', 'service'],
-            'Grant': ['grant', 'funding', 'research grant', 'seed funding'],
-            'Entrepreneurship': ['entrepreneur', 'startup', 'business', 'innovation'],
-            'Exchange': ['exchange', 'mobility', 'international', 'cultural']
+            'Internship': ['intern', 'internship', 'trainee', 'training'],
+            'Scholarship': ['scholarship', 'scholar', 'research', 'academic'],
+            'Fellowship': ['fellow', 'fellowship', 'leadership'],
+            'Employment': ['job', 'career', 'employment', 'position', 'vacancy', 'hiring'],
+            'Volunteer': ['volunteer', 'voluntary', 'community'],
+            'Grant': ['grant', 'funding', 'research grant'],
+            'Entrepreneurship': ['entrepreneur', 'startup', 'business'],
+            'Youth': ['youth', 'young', 'graduate']
         }
         
         for category, keywords in categories.items():
@@ -775,27 +607,14 @@ class OpportunityScraper:
     def _detect_country(self, text: str) -> str:
         """Detect country from text"""
         if not text:
-            return ''
+            return 'Africa'
         
         text_lower = text.lower()
         for country in self.african_countries:
             if country.lower() in text_lower:
                 return country
         
-        # Check for common country patterns
-        country_patterns = [
-            r'in\s+([A-Z][a-z]+)', r'at\s+([A-Z][a-z]+)', r'based in\s+([A-Z][a-z]+)',
-            r'located in\s+([A-Z][a-z]+)', r'country:\s*([A-Z][a-z]+)'
-        ]
-        
-        for pattern in country_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                potential = match.group(1)
-                if potential in self.african_countries:
-                    return potential
-        
-        return ''
+        return 'Africa'
     
     def _detect_region(self, text: str) -> str:
         """Detect African region from text"""
@@ -803,11 +622,16 @@ class OpportunityScraper:
             return ''
         
         text_lower = text.lower()
-        for region, countries in self.african_regions.items():
-            if any(country.lower() in text_lower for country in countries):
-                return region
-            
-            if region.lower() in text_lower:
+        
+        regions = {
+            'East Africa': ['kenya', 'tanzania', 'uganda', 'rwanda', 'ethiopia', 'somalia'],
+            'West Africa': ['nigeria', 'ghana', 'ivory coast', 'senegal', 'mali'],
+            'Southern Africa': ['south africa', 'botswana', 'zambia', 'zimbabwe'],
+            'North Africa': ['egypt', 'algeria', 'morocco', 'tunisia']
+        }
+        
+        for region, countries in regions.items():
+            if any(country in text_lower for country in countries):
                 return region
         
         if 'africa' in text_lower:
@@ -826,52 +650,20 @@ class OpportunityScraper:
             r'closing date[:\s]+([^.]*?)(?:\.|$)',
             r'apply by[:\s]+([^.]*?)(?:\.|$)',
             r'application deadline[:\s]+([^.]*?)(?:\.|$)',
-            r'due[:\s]+([^.]*?)(?:\.|$)',
-            r'ends[:\s]+([^.]*?)(?:\.|$)'
+            r'due[:\s]+([^.]*?)(?:\.|$)'
         ]
         
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 deadline = match.group(1).strip()
-                # Try to parse date
-                try:
-                    # Simple date parsing - expand as needed
-                    date_match = re.search(r'\d{1,2}[-/]\d{1,2}[-/]\d{2,4}', deadline)
-                    if date_match:
-                        return date_match.group(0)
-                    
-                    # Month day, year format
-                    date_match = re.search(r'(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}', deadline, re.IGNORECASE)
-                    if date_match:
-                        return date_match.group(0)
-                except:
-                    pass
+                # Try to extract date
+                date_match = re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', deadline)
+                if date_match:
+                    return date_match.group(0)
                 return deadline[:50]
         
         return ''
-    
-    def _validate_opportunity(self, opportunity: Dict) -> bool:
-        """Validate opportunity data"""
-        if not opportunity.get('title'):
-            return False
-        
-        if not opportunity.get('official_url'):
-            return False
-        
-        # Check for invalid URLs
-        url = opportunity.get('official_url', '')
-        if 'facebook.com' in url or 'linkedin.com' in url or 'twitter.com' in url:
-            return False
-        
-        if 'blogspot.com' in url or 'wordpress.com' in url or 'medium.com' in url:
-            return False
-        
-        # Check title length
-        if len(opportunity['title']) < 3:
-            return False
-        
-        return True
     
     def scrape_all_sources(self) -> Dict[str, Any]:
         """Scrape all active sources"""
@@ -887,7 +679,7 @@ class OpportunityScraper:
         results = []
         
         # Use thread pool for parallel scraping
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             future_to_source = {
                 executor.submit(self.scrape_source, source): source
                 for source in sources
