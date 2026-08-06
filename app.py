@@ -1,706 +1,1325 @@
-# app.py - Main Streamlit application
+"""
+Africa Opportunity Finder - Production Streamlit Application
+Enterprise-grade opportunity discovery platform for African youth
+"""
+
 import streamlit as st
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
-import json
-import re
 from datetime import datetime, timedelta
 import time
-import hashlib
+from typing import Dict, List, Optional, Any
+import json
 import base64
 from io import BytesIO
+import plotly.graph_objects as go
 import plotly.express as px
 
-# Configure page
+from scraper import DatabaseManager, OpportunityScraper
+from scraper import logger
+
+# Page configuration
 st.set_page_config(
-    page_title="Africa Youth Opportunities",
+    page_title="Africa Opportunity Finder",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS for professional styling
 st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        color: #1E3A8A;
-        text-align: center;
-        padding: 1rem;
-        background: linear-gradient(90deg, #1E3A8A, #3B82F6);
-        border-radius: 10px;
-        color: white;
-        margin-bottom: 2rem;
-    }
-    .opportunity-card {
-        border: 1px solid #e0e0e0;
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
-        background: white;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        transition: transform 0.2s;
-    }
-    .opportunity-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 12px rgba(0,0,0,0.15);
-    }
-    .deadline-urgent {
-        background-color: #FEE2E2;
-        color: #991B1B;
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
-        font-weight: bold;
-    }
-    .deadline-soon {
-        background-color: #FEF3C7;
-        color: #92400E;
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
-        font-weight: bold;
-    }
-    .deadline-normal {
-        background-color: #D1FAE5;
-        color: #065F46;
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
-        font-weight: bold;
-    }
-    .benefit-tag {
-        background-color: #E0E7FF;
-        color: #3730A3;
-        padding: 0.2rem 0.6rem;
-        border-radius: 15px;
-        font-size: 0.8rem;
-        display: inline-block;
-        margin: 0.2rem;
-    }
-    .verified-badge {
-        color: #059669;
-        font-weight: bold;
-    }
-    .stButton > button {
-        background-color: #1E3A8A;
-        color: white;
-        border-radius: 8px;
-        padding: 0.5rem 2rem;
-        font-weight: bold;
-    }
-    .stButton > button:hover {
-        background-color: #3B82F6;
-        color: white;
-    }
-</style>
+    <style>
+        .main-header {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #1a3c6e;
+            margin-bottom: 1rem;
+        }
+        .sub-header {
+            font-size: 1.2rem;
+            color: #4a6fa5;
+            margin-bottom: 2rem;
+        }
+        .opportunity-card {
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-left: 5px solid #1a3c6e;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .opportunity-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            transform: translateY(-2px);
+            transition: all 0.3s ease;
+        }
+        .metric-card {
+            background-color: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .stButton > button {
+            width: 100%;
+            background-color: #1a3c6e;
+            color: white;
+            font-weight: 600;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        .stButton > button:hover {
+            background-color: #2a5c8e;
+            color: white;
+        }
+        .verified-badge {
+            background-color: #28a745;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+        }
+        .unverified-badge {
+            background-color: #ffc107;
+            color: #856404;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+        }
+        .source-tag {
+            background-color: #e9ecef;
+            padding: 2px 10px;
+            border-radius: 15px;
+            font-size: 0.75rem;
+            color: #495057;
+        }
+        .deadline-warning {
+            color: #dc3545;
+            font-weight: 600;
+        }
+        .deadline-normal {
+            color: #28a745;
+        }
+        .match-score {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        .match-high {
+            color: #28a745;
+        }
+        .match-medium {
+            color: #ffc107;
+        }
+        .match-low {
+            color: #dc3545;
+        }
+    </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
+# Initialize database and scraper
+@st.cache_resource
+def init_services():
+    """Initialize services with caching"""
+    db = DatabaseManager()
+    scraper = OpportunityScraper(db)
+    return db, scraper
+
+db_manager, scraper = init_services()
+
+# Session state initialization
 if 'opportunities' not in st.session_state:
     st.session_state.opportunities = []
-if 'last_update' not in st.session_state:
-    st.session_state.last_update = None
-if 'search_results' not in st.session_state:
-    st.session_state.search_results = []
+if 'selected_opportunities' not in st.session_state:
+    st.session_state.selected_opportunities = []
+if 'last_scrape' not in st.session_state:
+    st.session_state.last_scrape = None
+if 'user_profile' not in st.session_state:
+    st.session_state.user_profile = ""
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = 1
+if 'filtered_count' not in st.session_state:
+    st.session_state.filtered_count = 0
+if 'scraping_in_progress' not in st.session_state:
+    st.session_state.scraping_in_progress = False
+if 'sources' not in st.session_state:
+    st.session_state.sources = db_manager.get_all_sources()
 
-# Scraper class
-class AfricanYouthScraper:
-    def __init__(self):
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        self.sources = [
-            {
-                'name': 'Youth Opportunities',
-                'url': 'https://www.youthop.com/opportunities',
-                'type': 'youthop'
-            },
-            {
-                'name': 'Opportunities for Africans',
-                'url': 'https://www.opportunitiesforafricans.com',
-                'type': 'ofa'
-            },
-            {
-                'name': 'Scholarship Positions',
-                'url': 'https://scholarship-positions.com',
-                'type': 'scholarship'
-            }
-        ]
-    
-    def scrape_youthop(self, url):
-        """Scrape Youth Opportunities website"""
-        opportunities = []
-        try:
-            response = requests.get(url, headers=self.headers, timeout=15)
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Find opportunity cards
-            cards = soup.find_all('div', class_=re.compile('opportunity|listing|post'))
-            for card in cards[:15]:
-                try:
-                    title_elem = card.find('h3') or card.find('h2') or card.find('h1')
-                    title = title_elem.get_text(strip=True) if title_elem else "Unknown Opportunity"
-                    
-                    # Extract deadline
-                    deadline_elem = card.find(string=re.compile(r'deadline|close|apply by', re.I))
-                    deadline_text = deadline_elem.find_parent().get_text(strip=True) if deadline_elem else "Not specified"
-                    deadline = self.parse_deadline(deadline_text)
-                    
-                    # Extract organization
-                    org_elem = card.find(string=re.compile(r'host|organization|institution|university', re.I))
-                    org = org_elem.find_parent().get_text(strip=True) if org_elem else "Various Organizations"
-                    
-                    # Extract benefits
-                    benefits = []
-                    benefit_elems = card.find_all(string=re.compile(r'tuition|scholarship|grant|fellowship|funding|stipend|allowance', re.I))
-                    for b in benefit_elems[:3]:
-                        benefits.append(b.strip())
-                    
-                    # Extract eligibility
-                    eligibility = []
-                    elig_elems = card.find_all(string=re.compile(r'eligible|requirement|qualification|open to', re.I))
-                    for e in elig_elems[:3]:
-                        eligibility.append(e.strip())
-                    
-                    # Generate description
-                    desc = card.get_text(strip=True)[:300]
-                    
-                    # Determine category
-                    category = self.determine_category(title + " " + desc + " " + " ".join(benefits))
-                    
-                    opportunity = {
-                        'title': title[:150],
-                        'organization': org[:100] if org else "Various",
-                        'deadline': deadline,
-                        'benefits': benefits[:3] if benefits else ["Various benefits available"],
-                        'eligibility': eligibility[:3] if eligibility else ["Open to African youth"],
-                        'description': desc[:500],
-                        'category': category,
-                        'link': self.extract_link(card),
-                        'source': 'Youth Opportunities',
-                        'verified': self.verify_opportunity(title, desc, url)
-                    }
-                    opportunities.append(opportunity)
-                except Exception as e:
-                    continue
-        except Exception as e:
-            st.error(f"Error scraping Youth Opportunities: {str(e)}")
-        return opportunities
-    
-    def scrape_opportunities_for_africans(self, url):
-        """Scrape Opportunities for Africans website"""
-        opportunities = []
-        try:
-            response = requests.get(url, headers=self.headers, timeout=15)
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            articles = soup.find_all('article') or soup.find_all('div', class_=re.compile('post|entry'))
-            for article in articles[:15]:
-                try:
-                    title_elem = article.find('h2') or article.find('h3') or article.find('h1')
-                    title = title_elem.get_text(strip=True) if title_elem else "Unknown Opportunity"
-                    
-                    # Extract deadline
-                    deadline_text = "Not specified"
-                    deadline_elems = article.find_all(string=re.compile(r'deadline|closing|apply by|application|due', re.I))
-                    for elem in deadline_elems[:3]:
-                        if elem and len(elem.strip()) > 5:
-                            deadline_text = elem.strip()
-                            break
-                    deadline = self.parse_deadline(deadline_text)
-                    
-                    # Extract organization
-                    org = "Various Organizations"
-                    org_elems = article.find_all(string=re.compile(r'host|organization|institution|offered by', re.I))
-                    for elem in org_elems[:2]:
-                        if elem and len(elem.strip()) > 5:
-                            org = elem.strip()
-                            break
-                    
-                    # Extract benefits
-                    benefits = []
-                    benefit_elems = article.find_all(string=re.compile(r'funding|scholarship|grant|fellowship|tuition|stipend|allowance|cover', re.I))
-                    for b in benefit_elems[:3]:
-                        if b and len(b.strip()) > 5:
-                            benefits.append(b.strip())
-                    
-                    # Extract eligibility
-                    eligibility = []
-                    elig_elems = article.find_all(string=re.compile(r'eligible|qualification|requirement|open to|criteria', re.I))
-                    for e in elig_elems[:3]:
-                        if e and len(e.strip()) > 5:
-                            eligibility.append(e.strip())
-                    
-                    # Description
-                    desc = article.get_text(strip=True)[:400]
-                    
-                    # Category
-                    category = self.determine_category(title + " " + desc + " " + " ".join(benefits))
-                    
-                    opportunity = {
-                        'title': title[:150],
-                        'organization': org[:100],
-                        'deadline': deadline,
-                        'benefits': benefits[:3] if benefits else ["Various benefits"],
-                        'eligibility': eligibility[:3] if eligibility else ["African youth"],
-                        'description': desc[:500],
-                        'category': category,
-                        'link': self.extract_link(article),
-                        'source': 'Opportunities for Africans',
-                        'verified': self.verify_opportunity(title, desc, url)
-                    }
-                    opportunities.append(opportunity)
-                except Exception as e:
-                    continue
-        except Exception as e:
-            st.error(f"Error scraping Opportunities for Africans: {str(e)}")
-        return opportunities
-    
-    def scrape_scholarship_positions(self, url):
-        """Scrape Scholarship Positions website"""
-        opportunities = []
-        try:
-            response = requests.get(url, headers=self.headers, timeout=15)
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            posts = soup.find_all('div', class_=re.compile('post|entry|listing'))
-            for post in posts[:15]:
-                try:
-                    title_elem = post.find('h2') or post.find('h3') or post.find('h1')
-                    title = title_elem.get_text(strip=True) if title_elem else "Unknown Scholarship"
-                    
-                    # Get deadline
-                    deadline_text = "Not specified"
-                    deadline_elems = post.find_all(string=re.compile(r'deadline|closing|apply by|due', re.I))
-                    for elem in deadline_elems[:3]:
-                        if elem and len(elem.strip()) > 5:
-                            deadline_text = elem.strip()
-                            break
-                    deadline = self.parse_deadline(deadline_text)
-                    
-                    # Organization
-                    org = "Various Institutions"
-                    org_elems = post.find_all(string=re.compile(r'university|college|institution|host|organization', re.I))
-                    for elem in org_elems[:2]:
-                        if elem and len(elem.strip()) > 5:
-                            org = elem.strip()
-                            break
-                    
-                    # Benefits
-                    benefits = []
-                    benefit_elems = post.find_all(string=re.compile(r'full tuition|partial tuition|stipend|grant|scholarship|fellowship|allowance|cover', re.I))
-                    for b in benefit_elems[:3]:
-                        if b and len(b.strip()) > 5:
-                            benefits.append(b.strip())
-                    
-                    # Eligibility
-                    eligibility = []
-                    elig_elems = post.find_all(string=re.compile(r'eligible|requirement|qualification|open to|criteria', re.I))
-                    for e in elig_elems[:3]:
-                        if e and len(e.strip()) > 5:
-                            eligibility.append(e.strip())
-                    
-                    # Description
-                    desc = post.get_text(strip=True)[:400]
-                    
-                    # Category
-                    category = self.determine_category(title + " " + desc + " " + " ".join(benefits))
-                    
-                    opportunity = {
-                        'title': title[:150],
-                        'organization': org[:100],
-                        'deadline': deadline,
-                        'benefits': benefits[:3] if benefits else ["Scholarship available"],
-                        'eligibility': eligibility[:3] if eligibility else ["Open to international students"],
-                        'description': desc[:500],
-                        'category': category,
-                        'link': self.extract_link(post),
-                        'source': 'Scholarship Positions',
-                        'verified': self.verify_opportunity(title, desc, url)
-                    }
-                    opportunities.append(opportunity)
-                except Exception as e:
-                    continue
-        except Exception as e:
-            st.error(f"Error scraping Scholarship Positions: {str(e)}")
-        return opportunities
-    
-    def parse_deadline(self, text):
-        """Parse deadline text into a structured format"""
-        try:
-            # Try to extract date
-            date_patterns = [
-                r'(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{4})',
-                r'(\d{1,2})[-/](\d{1,2})[-/](\d{4})',
-                r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})'
-            ]
-            
-            for pattern in date_patterns:
-                match = re.search(pattern, text.lower())
-                if match:
-                    return f"{match.group(0)}"
-            
-            # Check for relative deadlines
-            if 'today' in text.lower() or 'now' in text.lower():
-                return datetime.now().strftime('%Y-%m-%d')
-            elif 'tomorrow' in text.lower():
-                return (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
-            elif 'week' in text.lower():
-                days = int(re.search(r'(\d+)\s+week', text).group(1)) if re.search(r'(\d+)\s+week', text) else 1
-                return (datetime.now() + timedelta(weeks=days)).strftime('%Y-%m-%d')
-            elif 'month' in text.lower():
-                months = int(re.search(r'(\d+)\s+month', text).group(1)) if re.search(r'(\d+)\s+month', text) else 1
-                return (datetime.now() + timedelta(days=months*30)).strftime('%Y-%m-%d')
-            
-            return "Not specified"
-        except:
-            return "Not specified"
-    
-    def determine_category(self, text):
-        """Determine the category of opportunity"""
-        text_lower = text.lower()
-        if any(word in text_lower for word in ['tech', 'stem', 'engineering', 'data', 'software', 'ai', 'machine learning', 'programming']):
-            return 'Tech/STEM'
-        elif any(word in text_lower for word in ['entrepreneur', 'startup', 'business', 'venture', 'innovation', 'incubator']):
-            return 'Entrepreneurship'
-        elif any(word in text_lower for word in ['grant', 'funding', 'sponsor', 'financial']):
-            return 'Grant'
-        elif any(word in text_lower for word in ['fellowship', 'fellow']):
-            return 'Fellowship'
-        elif any(word in text_lower for word in ['intern', 'internship', 'trainee']):
-            return 'Internship'
-        else:
-            return 'Other'
-    
-    def extract_link(self, element):
-        """Extract link from element"""
-        link = element.find('a')
-        if link and link.get('href'):
-            href = link.get('href')
-            if href.startswith('/'):
-                return "https://example.com" + href
-            return href
-        return "#"
-    
-    def verify_opportunity(self, title, description, url):
-        """Verify the opportunity is active and legitimate"""
-        verification_checks = [
-            "Active opportunity found",
-            "Source appears legitimate",
-            "Contains relevant opportunity details"
-        ]
-        return verification_checks
-    
-    def scrape_all(self):
-        """Scrape all sources"""
-        all_opportunities = []
-        
-        with st.spinner('Scraping opportunities from multiple sources...'):
-            # Scrape Youth Opportunities
-            youth_opps = self.scrape_youthop(self.sources[0]['url'])
-            all_opportunities.extend(youth_opps)
-            
-            # Scrape Opportunities for Africans
-            ofa_opps = self.scrape_opportunities_for_africans(self.sources[1]['url'])
-            all_opportunities.extend(ofa_opps)
-            
-            # Scrape Scholarship Positions
-            scholarship_opps = self.scrape_scholarship_positions(self.sources[2]['url'])
-            all_opportunities.extend(scholarship_opps)
-            
-            # Filter and deduplicate
-            unique_opps = self.deduplicate_opportunities(all_opportunities)
-            
-            # Filter for African youth relevance
-            african_opps = self.filter_african_relevance(unique_opps)
-            
-            # Sort by deadline urgency
-            african_opps = self.sort_by_urgency(african_opps)
-            
-            st.session_state.opportunities = african_opps
-            st.session_state.last_update = datetime.now()
-            
-            return african_opps
-    
-    def deduplicate_opportunities(self, opportunities):
-        """Remove duplicate opportunities"""
-        seen_titles = set()
-        unique = []
-        for opp in opportunities:
-            title = opp['title'].lower()
-            if title not in seen_titles and len(title) > 5:
-                seen_titles.add(title)
-                unique.append(opp)
-        return unique
-    
-    def filter_african_relevance(self, opportunities):
-        """Filter opportunities relevant to African youth"""
-        filtered = []
-        african_keywords = ['africa', 'african', 'nigeria', 'kenya', 'ghana', 'south africa', 'uganda', 
-                           'tanzania', 'ethiopia', 'international', 'global', 'developing', 'commonwealth']
-        
-        for opp in opportunities:
-            text = (opp['title'] + " " + opp['description'] + " " + " ".join(opp['eligibility'])).lower()
-            if any(keyword in text for keyword in african_keywords):
-                filtered.append(opp)
-        
-        return filtered if filtered else opportunities[:20]  # Return top 20 if none match
-    
-    def sort_by_urgency(self, opportunities):
-        """Sort opportunities by deadline urgency"""
-        def get_urgency_score(opp):
-            deadline = opp['deadline']
-            if 'not specified' in deadline.lower():
-                return 5
-            try:
-                # Try to parse date from string
-                date_pattern = r'(\d{4}[-/]\d{1,2}[-/]\d{1,2})'
-                match = re.search(date_pattern, deadline)
-                if match:
-                    date_str = match.group(1)
-                    date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-                    days_until = (date_obj - datetime.now()).days
-                    if days_until < 0:
-                        return 0
-                    elif days_until <= 30:
-                        return days_until
-                    elif days_until <= 90:
-                        return days_until / 2
-                    return 30
-            except:
-                pass
-            return 30
-        
-        return sorted(opportunities, key=get_urgency_score)
-
-# Create download PDF function
-def create_download_pdf(opportunities):
-    """Create a PDF of opportunities for download"""
-    try:
-        from reportlab.lib import colors
-        from reportlab.lib.pagesizes import letter, landscape
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.units import inch
-        from reportlab.lib.enums import TA_CENTER, TA_LEFT
-        
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), 
-                               rightMargin=50, leftMargin=50, 
-                               topMargin=50, bottomMargin=50)
-        
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=24,
-            textColor=colors.HexColor('#1E3A8A'),
-            alignment=TA_CENTER,
-            spaceAfter=30
-        )
-        
-        heading_style = ParagraphStyle(
-            'CustomHeading',
-            parent=styles['Heading2'],
-            fontSize=16,
-            textColor=colors.HexColor('#1E3A8A'),
-            spaceAfter=12
-        )
-        
-        normal_style = ParagraphStyle(
-            'CustomNormal',
-            parent=styles['Normal'],
-            fontSize=10,
-            spaceAfter=6
-        )
-        
-        story = []
-        story.append(Paragraph("African Youth Opportunities Report", title_style))
-        story.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", normal_style))
-        story.append(Spacer(1, 20))
-        
-        for i, opp in enumerate(opportunities, 1):
-            # Title
-            story.append(Paragraph(f"{i}. {opp['title']}", heading_style))
-            
-            # Details table
-            data = [
-                ['Organization:', opp['organization']],
-                ['Category:', opp['category']],
-                ['Deadline:', opp['deadline']],
-                ['Source:', opp['source']],
-            ]
-            
-            # Add benefits
-            benefits_text = ', '.join(opp['benefits']) if opp['benefits'] else "Not specified"
-            data.append(['Benefits:', benefits_text])
-            
-            # Add eligibility
-            elig_text = ', '.join(opp['eligibility']) if opp['eligibility'] else "Not specified"
-            data.append(['Eligibility:', elig_text])
-            
-            # Add description
-            data.append(['Description:', opp['description'][:300] + '...'])
-            
-            # Add verification
-            data.append(['Verification:', ' ✓ '.join(opp['verified']) if opp['verified'] else "Verified"])
-            
-            table = Table(data, colWidths=[1.5*inch, 5*inch])
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#E8F0FE')),
-                ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#1E3A8A')),
-                ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
-                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (0, -1), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-                ('BACKGROUND', (1, 0), (1, -1), colors.white),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ]))
-            story.append(table)
-            story.append(Spacer(1, 15))
-            
-            # Add page break after every 3 opportunities
-            if i % 3 == 0 and i < len(opportunities):
-                story.append(PageBreak())
-        
-        doc.build(story)
-        buffer.seek(0)
-        return buffer
-    except Exception as e:
-        st.error(f"Error creating PDF: {str(e)}")
-        return None
-
-# Main app
 def main():
-    # Header
-    st.markdown('<div class="main-header">🌍 African Youth Opportunities</div>', unsafe_allow_html=True)
+    """Main application entry point"""
     
     # Sidebar
     with st.sidebar:
-        st.image("https://img.icons8.com/color/96/000000/africa.png", width=100)
-        st.title("🎯 Filters")
+        st.image("https://img.icons8.com/color/96/000000/africa.png", width=80)
+        st.markdown("### 🌍 Africa Opportunity Finder")
+        st.markdown("---")
         
-        # Search
-        search_term = st.text_input("🔍 Search Opportunities", placeholder="e.g., scholarship, tech, engineering...")
+        # Scrape controls
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Scrape All", use_container_width=True):
+                st.session_state.scraping_in_progress = True
+                with st.spinner("Scraping all sources..."):
+                    try:
+                        result = scraper.scrape_all_sources()
+                        st.session_state.last_scrape = datetime.now()
+                        st.session_state.opportunities = db_manager.get_opportunities(limit=500)
+                        st.success(f"Found {result['total_opportunities']} opportunities")
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+                st.session_state.scraping_in_progress = False
+                st.rerun()
         
-        # Category filter
-        categories = ['All', 'Tech/STEM', 'Entrepreneurship', 'Fellowship', 'Grant', 'Internship', 'Other']
-        selected_category = st.selectbox("📂 Category", categories)
+        with col2:
+            if st.button("📊 View Stats", use_container_width=True):
+                st.session_state.page = "dashboard"
+                st.rerun()
         
-        # Deadline filter
-        deadline_filter = st.selectbox(
-            "⏰ Deadline",
-            ['All', 'Urgent (7 days)', 'Soon (30 days)', 'Open (90 days)']
+        st.markdown("---")
+        
+        # Navigation
+        pages = {
+            "🏠 Home": "home",
+            "🔍 Browse": "browse",
+            "💡 Recommendations": "recommendations",
+            "📊 Dashboard": "dashboard",
+            "⚙️ Sources": "sources"
+        }
+        
+        selection = st.radio("Navigation", list(pages.keys()), index=0)
+        current_page = pages[selection]
+        
+        st.markdown("---")
+        
+        # User Profile for recommendations
+        st.markdown("### 👤 Your Profile")
+        user_profile = st.text_area(
+            "Skills, interests, and career goals",
+            value=st.session_state.user_profile,
+            placeholder="Example: Computer Science student interested in AI and machine learning internships in East Africa",
+            height=80
         )
-        
-        # Scrape button
-        if st.button("🔄 Scrape Latest Opportunities", use_container_width=True):
-            scraper = AfricanYouthScraper()
-            opportunities = scraper.scrape_all()
-            st.success(f"✅ Found {len(opportunities)} opportunities!")
+        if st.button("Update Profile", use_container_width=True):
+            st.session_state.user_profile = user_profile
+            st.success("Profile updated!")
             st.rerun()
         
-        # Stats
-        if st.session_state.opportunities:
-            st.divider()
-            st.subheader("📊 Statistics")
-            opps = st.session_state.opportunities
-            st.metric("Total Opportunities", len(opps))
-            
-            # Category distribution
-            cat_counts = {}
-            for opp in opps:
-                cat = opp['category']
-                cat_counts[cat] = cat_counts.get(cat, 0) + 1
-            
-            # Create a small pie chart
-            if cat_counts:
-                fig = px.pie(
-                    values=list(cat_counts.values()),
-                    names=list(cat_counts.keys()),
-                    title="Categories"
-                )
-                st.plotly_chart(fig, use_container_width=True)
+        st.markdown("---")
+        st.caption(f"Last updated: {st.session_state.last_scrape.strftime('%Y-%m-%d %H:%M') if st.session_state.last_scrape else 'Never'}")
+        st.caption(f"Total opportunities: {len(st.session_state.opportunities)}")
     
-    # Main content area
-    col1, col2 = st.columns([3, 1])
+    # Page routing
+    if current_page == "home":
+        render_home()
+    elif current_page == "browse":
+        render_browse()
+    elif current_page == "recommendations":
+        render_recommendations()
+    elif current_page == "dashboard":
+        render_dashboard()
+    elif current_page == "sources":
+        render_sources()
+
+def render_home():
+    """Render home page"""
+    st.markdown('<p class="main-header">Latest African Opportunities</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Discover verified opportunities for African youth across the continent</p>', unsafe_allow_html=True)
+    
+    # Load opportunities if empty
+    if not st.session_state.opportunities:
+        with st.spinner("Loading opportunities..."):
+            st.session_state.opportunities = db_manager.get_opportunities(limit=500)
+            if not st.session_state.opportunities:
+                st.info("No opportunities found. Click 'Scrape All' to fetch opportunities from all sources.")
+                return
+    
+    # Statistics row
+    stats = db_manager.get_statistics()
+    col1, col2, col3, col4 = st.columns(4)
+    
     with col1:
-        if st.session_state.last_update:
-            st.info(f"📅 Last updated: {st.session_state.last_update.strftime('%Y-%m-%d %H:%M:%S')}")
+        st.markdown(f"""
+            <div class="metric-card">
+                <h3>{stats['total_opportunities']}</h3>
+                <p>Total Opportunities</p>
+            </div>
+        """, unsafe_allow_html=True)
     
     with col2:
-        if st.session_state.opportunities:
-            # Download PDF button
-            pdf_buffer = create_download_pdf(st.session_state.opportunities)
-            if pdf_buffer:
-                st.download_button(
-                    label="📥 Download PDF Report",
-                    data=pdf_buffer,
-                    file_name=f"youth_opportunities_{datetime.now().strftime('%Y%m%d')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
+        st.markdown(f"""
+            <div class="metric-card">
+                <h3>{stats['verified']}</h3>
+                <p>Verified</p>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+            <div class="metric-card">
+                <h3>{stats['active_sources']}</h3>
+                <p>Active Sources</p>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        if st.session_state.last_scrape:
+            time_diff = datetime.now() - st.session_state.last_scrape
+            hours = time_diff.total_seconds() / 3600
+            st.markdown(f"""
+                <div class="metric-card">
+                    <h3>{int(hours)}h</h3>
+                    <p>Since Last Update</p>
+                </div>
+            """, unsafe_allow_html=True)
+    
+    st.markdown("---")
     
     # Display opportunities
-    opportunities = st.session_state.opportunities
+    display_count = min(10, len(st.session_state.opportunities))
+    st.subheader(f"Recent Opportunities ({display_count} of {len(st.session_state.opportunities)})")
+    
+    for opp in st.session_state.opportunities[:display_count]:
+        display_opportunity_card(opp)
+    
+    # View all button
+    if len(st.session_state.opportunities) > 10:
+        if st.button("View All Opportunities", use_container_width=True):
+            st.session_state.page = "browse"
+            st.rerun()
+
+def render_browse():
+    """Render browse page with filters"""
+    st.markdown('<p class="main-header">Browse Opportunities</p>', unsafe_allow_html=True)
+    
+    if not st.session_state.opportunities:
+        st.info("No opportunities available. Please scrape sources first.")
+        return
+    
+    # Filters
+    st.markdown("### Filters")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        search_query = st.text_input("🔍 Search", placeholder="Search by title, organization...")
+    
+    with col2:
+        # Get categories from opportunities
+        categories = list(set(opp.get('category', 'Other') for opp in st.session_state.opportunities))
+        categories.sort()
+        category_filter = st.selectbox("Category", ["All"] + categories)
+    
+    with col3:
+        countries = list(set(opp.get('country', 'Global') for opp in st.session_state.opportunities))
+        countries = [c for c in countries if c and c != 'Global']  # Remove empty and Global
+        countries.sort()
+        country_filter = st.selectbox("Country", ["All"] + countries)
+    
+    with col4:
+        sort_options = ["Date Added (Newest)", "Date Added (Oldest)", "Title", "Organization", "Deadline"]
+        sort_by = st.selectbox("Sort By", sort_options)
     
     # Apply filters
-    if search_term:
-        opportunities = [opp for opp in opportunities if 
-                        search_term.lower() in opp['title'].lower() or 
-                        search_term.lower() in opp['description'].lower() or
-                        any(search_term.lower() in el.lower() for el in opp['benefits'])]
+    filtered = st.session_state.opportunities.copy()
     
-    if selected_category != 'All':
-        opportunities = [opp for opp in opportunities if opp['category'] == selected_category]
+    if search_query:
+        search_lower = search_query.lower()
+        filtered = [opp for opp in filtered if 
+                   search_lower in opp.get('title', '').lower() or 
+                   search_lower in opp.get('organization', '').lower() or
+                   search_lower in opp.get('description', '').lower() or
+                   search_lower in opp.get('source_name', '').lower()]
     
-    if deadline_filter != 'All':
-        current_date = datetime.now()
-        filtered = []
-        for opp in opportunities:
-            deadline = opp['deadline']
-            if deadline != "Not specified":
-                try:
-                    # Try to parse date
-                    date_pattern = r'(\d{4}[-/]\d{1,2}[-/]\d{1,2})'
-                    match = re.search(date_pattern, deadline)
-                    if match:
-                        date_str = match.group(1)
-                        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-                        days_until = (date_obj - current_date).days
-                        
-                        if deadline_filter == 'Urgent (7 days)' and 0 <= days_until <= 7:
-                            filtered.append(opp)
-                        elif deadline_filter == 'Soon (30 days)' and 0 <= days_until <= 30:
-                            filtered.append(opp)
-                        elif deadline_filter == 'Open (90 days)' and 0 <= days_until <= 90:
-                            filtered.append(opp)
-                except:
-                    pass
-        opportunities = filtered if filtered else opportunities
+    if category_filter != "All":
+        filtered = [opp for opp in filtered if opp.get('category') == category_filter]
     
-    # Display results
-    if not opportunities:
-        st.warning("No opportunities found matching your criteria. Try adjusting the filters or scrape new data.")
-    else:
-        st.success(f"Showing {len(opportunities)} opportunities")
+    if country_filter != "All":
+        filtered = [opp for opp in filtered if opp.get('country') == country_filter]
+    
+    # Sort
+    if sort_by == "Date Added (Newest)":
+        filtered.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+    elif sort_by == "Date Added (Oldest)":
+        filtered.sort(key=lambda x: x.get('created_at', ''))
+    elif sort_by == "Title":
+        filtered.sort(key=lambda x: x.get('title', ''))
+    elif sort_by == "Organization":
+        filtered.sort(key=lambda x: x.get('organization', ''))
+    elif sort_by == "Deadline":
+        filtered.sort(key=lambda x: x.get('deadline', '9999-12-31'))
+    
+    st.session_state.filtered_count = len(filtered)
+    
+    # Results count
+    st.markdown(f"### Found {len(filtered)} opportunities")
+    st.markdown("---")
+    
+    # Pagination
+    page_size = 10
+    total_pages = max(1, (len(filtered) + page_size - 1) // page_size)
+    
+    if total_pages > 1:
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col1:
+            if st.button("◀ Previous") and st.session_state.current_page > 1:
+                st.session_state.current_page -= 1
+                st.rerun()
+        with col2:
+            st.write(f"Page {st.session_state.current_page} of {total_pages}")
+        with col3:
+            if st.button("Next ▶") and st.session_state.current_page < total_pages:
+                st.session_state.current_page += 1
+                st.rerun()
+    
+    # Display opportunities
+    start_idx = (st.session_state.current_page - 1) * page_size
+    end_idx = min(start_idx + page_size, len(filtered))
+    
+    for opp in filtered[start_idx:end_idx]:
+        display_opportunity_card(opp)
+
+def render_recommendations():
+    """Render AI recommendations page"""
+    st.markdown('<p class="main-header">AI-Powered Recommendations</p>', unsafe_allow_html=True)
+    
+    if not st.session_state.opportunities:
+        st.info("No opportunities available. Please scrape sources first.")
+        return
+    
+    if not st.session_state.user_profile:
+        st.warning("Please set up your profile in the sidebar to get personalized recommendations.")
         
-        for opp in opportunities[:20]:  # Limit to 20 for performance
-            with st.container():
-                st.markdown(f"""
-                <div class="opportunity-card">
-                    <h3 style="color:#1E3A8A; margin-top:0;">{opp['title']}</h3>
-                    <p><strong>🏛️ Host Organization:</strong> {opp['organization']}</p>
-                    <p><strong>🌍 Target Audience:</strong> {', '.join(opp['eligibility'][:3])}</p>
-                    <p><strong>💰 Benefits:</strong> <span class="benefit-tag">{'</span> <span class="benefit-tag">'.join(opp['benefits'][:3])}</span></p>
-                    <p><strong>📅 Application Deadline:</strong> {opp['deadline']}</p>
-                    <p><strong>📂 Category:</strong> <span style="background:#DBEAFE; padding:0.2rem 0.8rem; border-radius:15px;">{opp['category']}</span></p>
-                    <p><strong>📝 Description:</strong> {opp['description'][:200]}...</p>
-                    <p><strong>✅ Verification:</strong> <span class="verified-badge">✓ {opp['verified'][0] if opp['verified'] else 'Verified'}</span></p>
-                    <p><strong>🔗 Source:</strong> {opp['source']}</p>
-                    <a href="{opp['link']}" target="_blank" style="background:#1E3A8A; color:white; padding:0.3rem 1.5rem; border-radius:20px; text-decoration:none; display:inline-block;">Apply Now</a>
+        # Show recent opportunities
+        st.subheader("Recent Opportunities")
+        for opp in st.session_state.opportunities[:5]:
+            display_opportunity_card(opp)
+        return
+    
+    # Simple TF-IDF based matching
+    with st.spinner("Generating personalized recommendations..."):
+        try:
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            from sklearn.metrics.pairwise import cosine_similarity
+            
+            # Prepare texts
+            opportunities_text = []
+            for opp in st.session_state.opportunities:
+                text = f"{opp.get('title', '')} {opp.get('description', '')} {opp.get('category', '')} {opp.get('organization', '')}"
+                opportunities_text.append(text)
+            
+            # Add user profile
+            all_texts = opportunities_text + [st.session_state.user_profile]
+            
+            # Vectorize
+            vectorizer = TfidfVectorizer(max_features=5000, stop_words='english')
+            tfidf_matrix = vectorizer.fit_transform(all_texts)
+            
+            # Calculate similarities
+            user_vector = tfidf_matrix[-1]
+            opp_vectors = tfidf_matrix[:-1]
+            similarities = cosine_similarity(user_vector, opp_vectors).flatten()
+            
+            # Add scores to opportunities
+            for i, opp in enumerate(st.session_state.opportunities):
+                opp['match_score'] = float(similarities[i] if i < len(similarities) else 0)
+            
+            # Sort by match score
+            scored_opps = sorted(st.session_state.opportunities, 
+                                key=lambda x: x.get('match_score', 0), 
+                                reverse=True)
+            
+            # Display top recommendations
+            st.subheader(f"Top Recommendations for You")
+            st.caption(f"Based on: {st.session_state.user_profile[:100]}...")
+            st.markdown("---")
+            
+            for opp in scored_opps[:10]:
+                display_opportunity_card(opp)
+                
+        except Exception as e:
+            st.error(f"Error generating recommendations: {str(e)}")
+            st.info("Showing all opportunities instead")
+            
+            for opp in st.session_state.opportunities[:10]:
+                display_opportunity_card(opp)
+
+def render_dashboard():
+    """Render analytics dashboard"""
+    st.markdown('<p class="main-header">Analytics Dashboard</p>', unsafe_allow_html=True)
+    
+    stats = db_manager.get_statistics()
+    
+    # Overview metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Opportunities", stats['total_opportunities'])
+    with col2:
+        st.metric("Verified", stats['verified'], delta=f"{stats['verified']/max(stats['total_opportunities'],1)*100:.1f}%")
+    with col3:
+        st.metric("Active Sources", stats['active_sources'])
+    with col4:
+        st.metric("Categories", len(stats.get('categories', [])))
+    
+    st.markdown("---")
+    
+    # Charts
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if stats.get('categories'):
+            st.subheader("Opportunities by Category")
+            df_cat = pd.DataFrame(stats['categories'])
+            fig = px.pie(df_cat, values='COUNT(*)', names='category', title='Category Distribution')
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        if stats.get('top_countries'):
+            st.subheader("Top 10 Countries")
+            df_country = pd.DataFrame(stats['top_countries'])
+            fig = px.bar(df_country, x='country', y='COUNT(*)', title='Opportunities by Country')
+            fig.update_layout(height=400, xaxis_tickangle=-45)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Sources table
+    st.subheader("Source Performance")
+    sources = db_manager.get_all_sources()
+    if sources:
+        df_sources = pd.DataFrame(sources)
+        df_sources_display = df_sources[['name', 'category', 'country', 'opportunities_count', 'error_count', 'is_active']]
+        df_sources_display.columns = ['Name', 'Category', 'Country', 'Opportunities', 'Errors', 'Active']
+        df_sources_display['Active'] = df_sources_display['Active'].apply(lambda x: '✅' if x else '❌')
+        st.dataframe(df_sources_display, use_container_width=True, hide_index=True)
+
+def render_sources():
+    """Render source management page"""
+    st.markdown('<p class="main-header">Source Management</p>', unsafe_allow_html=True)
+    
+    # Add new source
+    with st.expander("➕ Add New Source", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            source_name = st.text_input("Source Name", placeholder="Example: African Union")
+            source_url = st.text_input("Source URL", placeholder="https://example.com/opportunities")
+        with col2:
+            source_category = st.selectbox("Category", ["Government", "Employment", "Education", "Funding", "Internship", "Volunteer", "Youth", "Other"])
+            source_country = st.selectbox("Primary Country", ["Africa"] + ["East Africa", "West Africa", "North Africa", "Southern Africa", "Central Africa"] + [
+                'Algeria', 'Angola', 'Benin', 'Botswana', 'Burkina Faso', 'Burundi',
+                'Cameroon', 'Cabo Verde', 'Central African Republic', 'Chad',
+                'Comoros', 'Congo', 'Djibouti', 'Egypt', 'Equatorial Guinea',
+                'Eritrea', 'Eswatini', 'Ethiopia', 'Gabon', 'Gambia', 'Ghana',
+                'Guinea', 'Guinea-Bissau', 'Ivory Coast', 'Kenya', 'Lesotho',
+                'Liberia', 'Libya', 'Madagascar', 'Malawi', 'Mali', 'Mauritania',
+                'Mauritius', 'Morocco', 'Mozambique', 'Namibia', 'Niger', 'Nigeria',
+                'Rwanda', 'Sao Tome and Principe', 'Senegal', 'Seychelles',
+                'Sierra Leone', 'Somalia', 'South Africa', 'South Sudan', 'Sudan',
+                'Tanzania', 'Togo', 'Tunisia', 'Uganda', 'Zambia', 'Zimbabwe'
+            ])
+        
+        if st.button("Add Source", type="primary"):
+            if source_name and source_url:
+                if db_manager.add_source(source_name, source_url, source_category, source_country):
+                    st.success(f"✅ Source '{source_name}' added successfully!")
+                    st.session_state.sources = db_manager.get_all_sources()
+                    st.rerun()
+                else:
+                    st.error("Failed to add source. It may already exist.")
+            else:
+                st.error("Please fill in all required fields.")
+    
+    # Display sources
+    st.subheader("📋 All Sources")
+    
+    sources = db_manager.get_all_sources()
+    if not sources:
+        st.info("No sources found. Add a source to get started!")
+        return
+    
+    # Search
+    search_source = st.text_input("🔍 Search Sources", placeholder="Search by name or URL...")
+    
+    if search_source:
+        sources = [s for s in sources if search_source.lower() in s['name'].lower() or search_source.lower() in s['url'].lower()]
+    
+    # Create display dataframe
+    df = pd.DataFrame(sources)
+    df_display = df[['id', 'name', 'url', 'category', 'country', 'is_active', 'opportunities_count', 'last_scrape']]
+    df_display.columns = ['ID', 'Name', 'URL', 'Category', 'Country', 'Active', 'Opps', 'Last Scrape']
+    df_display['Active'] = df_display['Active'].apply(lambda x: '✅' if x else '❌')
+    
+    st.dataframe(df_display, use_container_width=True, hide_index=True)
+    
+    # Source management
+    st.markdown("---")
+    st.subheader("🔧 Manage Sources")
+    
+    source_options = [f"{s['id']} - {s['name']}" for s in sources]
+    if source_options:
+        selected = st.selectbox("Select Source", source_options)
+        if selected:
+            source_id = int(selected.split(' - ')[0])
+            source = db_manager.get_all_sources()
+            source = next((s for s in source if s['id'] == source_id), None)
+            
+            if source:
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if st.button("🔄 Toggle Status"):
+                        db_manager.toggle_source(source_id)
+                        st.success("Status updated!")
+                        st.session_state.sources = db_manager.get_all_sources()
+                        st.rerun()
+                
+                with col2:
+                    if st.button("📊 Scrape Now"):
+                        with st.spinner(f"Scraping {source['name']}..."):
+                            result = scraper.scrape_single_source(source_id)
+                            if 'error' not in result:
+                                st.success(f"Found {result['found']} opportunities, saved {result['saved']}")
+                            else:
+                                st.error(result['error'])
+                            st.rerun()
+                
+                with col3:
+                    if st.button("🗑️ Delete"):
+                        if st.warning("Are you sure you want to delete this source?"):
+                            db_manager.delete_source(source_id)
+                            st.success("Source deleted!")
+                            st.session_state.sources = db_manager.get_all_sources()
+                            st.rerun()
+
+def display_opportunity_card(opportunity: Dict):
+    """Display a single opportunity card"""
+    verified = opportunity.get('verified', False)
+    match_score = opportunity.get('match_score', 0)
+    
+    # Determine match score class
+    if match_score >= 0.7:
+        score_class = "match-high"
+        score_text = f"{int(match_score * 100)}%"
+    elif match_score >= 0.4:
+        score_class = "match-medium"
+        score_text = f"{int(match_score * 100)}%"
+    else:
+        score_class = "match-low"
+        score_text = f"{int(match_score * 100)}%" if match_score > 0 else "N/A"
+    
+    # Deadline status
+    deadline = opportunity.get('deadline', '')
+    deadline_html = ''
+    if deadline:
+        try:
+            # Try to parse date
+            if '/' in deadline or '-' in deadline:
+                from dateutil import parser
+                deadline_date = parser.parse(deadline, fuzzy=True)
+                days_until = (deadline_date - datetime.now()).days
+                if days_until < 0:
+                    deadline_html = f'<span class="deadline-warning">⚠️ Passed</span>'
+                elif days_until < 7:
+                    deadline_html = f'<span class="deadline-warning">⚠️ {days_until} days left</span>'
+                elif days_until < 30:
+                    deadline_html = f'<span class="deadline-normal">{days_until} days left</span>'
+                else:
+                    deadline_html = f'<span>{deadline}</span>'
+            else:
+                deadline_html = f'<span>{deadline}</span>'
+        except:
+            deadline_html = f'<span>{deadline}</span>'
+    
+    # Build card
+    st.markdown(f"""
+        <div class="opportunity-card">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div style="flex: 1;">
+                    <h3 style="margin: 0 0 5px 0;">{opportunity.get('title', 'Unknown Opportunity')}</h3>
+                    <div style="margin-bottom: 8px;">
+                        <span style="font-weight: 600;">{opportunity.get('organization', 'Unknown Organization')}</span>
+                        <span class="source-tag" style="margin-left: 8px;">{opportunity.get('source_name', 'Unknown')}</span>
+                        <span class="source-tag" style="margin-left: 4px;">{opportunity.get('category', 'Other')}</span>
+                        <span class="source-tag" style="margin-left: 4px;">{opportunity.get('country', 'Global')}</span>
+                    </div>
+                    <div style="margin-bottom: 8px; font-size: 0.9rem;">
+                        {deadline_html if deadline else 'No deadline specified'}
+                        {' '}<span class="{'verified-badge' if verified else 'unverified-badge'}">{'✅ Verified' if verified else '⚠️ Unverified'}</span>
+                    </div>
+                    <div style="font-size: 0.9rem; color: #666; margin-top: 8px;">
+                        {opportunity.get('description', '')[:200]}{'...' if len(opportunity.get('description', '')) > 200 else ''}
+                    </div>
                 </div>
-                """, unsafe_allow_html=True)
+                <div style="text-align: right; min-width: 120px; margin-left: 20px;">
+                    <div class="match-score {score_class}">{score_text}</div>
+                    <div style="font-size: 0.8rem; color: #666;">Match Score</div>
+                    <div style="margin-top: 12px;">
+                        <a href="{opportunity.get('official_url', '#')}" target="_blank">
+                            <button style="background-color: #1a3c6e; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                                Apply Now →
+                            </button>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()"""
+Africa Opportunity Finder - Production Streamlit Application
+Enterprise-grade opportunity discovery platform for African youth
+"""
+
+import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta
+import time
+from typing import Dict, List, Optional, Any
+import json
+import base64
+from io import BytesIO
+import plotly.graph_objects as go
+import plotly.express as px
+
+from scraper import DatabaseManager, OpportunityScraper
+from scraper import logger
+
+# Page configuration
+st.set_page_config(
+    page_title="Africa Opportunity Finder",
+    page_icon="🌍",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS for professional styling
+st.markdown("""
+    <style>
+        .main-header {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #1a3c6e;
+            margin-bottom: 1rem;
+        }
+        .sub-header {
+            font-size: 1.2rem;
+            color: #4a6fa5;
+            margin-bottom: 2rem;
+        }
+        .opportunity-card {
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-left: 5px solid #1a3c6e;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .opportunity-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            transform: translateY(-2px);
+            transition: all 0.3s ease;
+        }
+        .metric-card {
+            background-color: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .stButton > button {
+            width: 100%;
+            background-color: #1a3c6e;
+            color: white;
+            font-weight: 600;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        .stButton > button:hover {
+            background-color: #2a5c8e;
+            color: white;
+        }
+        .verified-badge {
+            background-color: #28a745;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+        }
+        .unverified-badge {
+            background-color: #ffc107;
+            color: #856404;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+        }
+        .source-tag {
+            background-color: #e9ecef;
+            padding: 2px 10px;
+            border-radius: 15px;
+            font-size: 0.75rem;
+            color: #495057;
+        }
+        .deadline-warning {
+            color: #dc3545;
+            font-weight: 600;
+        }
+        .deadline-normal {
+            color: #28a745;
+        }
+        .match-score {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        .match-high {
+            color: #28a745;
+        }
+        .match-medium {
+            color: #ffc107;
+        }
+        .match-low {
+            color: #dc3545;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# Initialize database and scraper
+@st.cache_resource
+def init_services():
+    """Initialize services with caching"""
+    db = DatabaseManager()
+    scraper = OpportunityScraper(db)
+    return db, scraper
+
+db_manager, scraper = init_services()
+
+# Session state initialization
+if 'opportunities' not in st.session_state:
+    st.session_state.opportunities = []
+if 'selected_opportunities' not in st.session_state:
+    st.session_state.selected_opportunities = []
+if 'last_scrape' not in st.session_state:
+    st.session_state.last_scrape = None
+if 'user_profile' not in st.session_state:
+    st.session_state.user_profile = ""
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = 1
+if 'filtered_count' not in st.session_state:
+    st.session_state.filtered_count = 0
+if 'scraping_in_progress' not in st.session_state:
+    st.session_state.scraping_in_progress = False
+if 'sources' not in st.session_state:
+    st.session_state.sources = db_manager.get_all_sources()
+
+def main():
+    """Main application entry point"""
+    
+    # Sidebar
+    with st.sidebar:
+        st.image("https://img.icons8.com/color/96/000000/africa.png", width=80)
+        st.markdown("### 🌍 Africa Opportunity Finder")
+        st.markdown("---")
+        
+        # Scrape controls
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Scrape All", use_container_width=True):
+                st.session_state.scraping_in_progress = True
+                with st.spinner("Scraping all sources..."):
+                    try:
+                        result = scraper.scrape_all_sources()
+                        st.session_state.last_scrape = datetime.now()
+                        st.session_state.opportunities = db_manager.get_opportunities(limit=500)
+                        st.success(f"Found {result['total_opportunities']} opportunities")
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+                st.session_state.scraping_in_progress = False
+                st.rerun()
+        
+        with col2:
+            if st.button("📊 View Stats", use_container_width=True):
+                st.session_state.page = "dashboard"
+                st.rerun()
+        
+        st.markdown("---")
+        
+        # Navigation
+        pages = {
+            "🏠 Home": "home",
+            "🔍 Browse": "browse",
+            "💡 Recommendations": "recommendations",
+            "📊 Dashboard": "dashboard",
+            "⚙️ Sources": "sources"
+        }
+        
+        selection = st.radio("Navigation", list(pages.keys()), index=0)
+        current_page = pages[selection]
+        
+        st.markdown("---")
+        
+        # User Profile for recommendations
+        st.markdown("### 👤 Your Profile")
+        user_profile = st.text_area(
+            "Skills, interests, and career goals",
+            value=st.session_state.user_profile,
+            placeholder="Example: Computer Science student interested in AI and machine learning internships in East Africa",
+            height=80
+        )
+        if st.button("Update Profile", use_container_width=True):
+            st.session_state.user_profile = user_profile
+            st.success("Profile updated!")
+            st.rerun()
+        
+        st.markdown("---")
+        st.caption(f"Last updated: {st.session_state.last_scrape.strftime('%Y-%m-%d %H:%M') if st.session_state.last_scrape else 'Never'}")
+        st.caption(f"Total opportunities: {len(st.session_state.opportunities)}")
+    
+    # Page routing
+    if current_page == "home":
+        render_home()
+    elif current_page == "browse":
+        render_browse()
+    elif current_page == "recommendations":
+        render_recommendations()
+    elif current_page == "dashboard":
+        render_dashboard()
+    elif current_page == "sources":
+        render_sources()
+
+def render_home():
+    """Render home page"""
+    st.markdown('<p class="main-header">Latest African Opportunities</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Discover verified opportunities for African youth across the continent</p>', unsafe_allow_html=True)
+    
+    # Load opportunities if empty
+    if not st.session_state.opportunities:
+        with st.spinner("Loading opportunities..."):
+            st.session_state.opportunities = db_manager.get_opportunities(limit=500)
+            if not st.session_state.opportunities:
+                st.info("No opportunities found. Click 'Scrape All' to fetch opportunities from all sources.")
+                return
+    
+    # Statistics row
+    stats = db_manager.get_statistics()
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown(f"""
+            <div class="metric-card">
+                <h3>{stats['total_opportunities']}</h3>
+                <p>Total Opportunities</p>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+            <div class="metric-card">
+                <h3>{stats['verified']}</h3>
+                <p>Verified</p>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+            <div class="metric-card">
+                <h3>{stats['active_sources']}</h3>
+                <p>Active Sources</p>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        if st.session_state.last_scrape:
+            time_diff = datetime.now() - st.session_state.last_scrape
+            hours = time_diff.total_seconds() / 3600
+            st.markdown(f"""
+                <div class="metric-card">
+                    <h3>{int(hours)}h</h3>
+                    <p>Since Last Update</p>
+                </div>
+            """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Display opportunities
+    display_count = min(10, len(st.session_state.opportunities))
+    st.subheader(f"Recent Opportunities ({display_count} of {len(st.session_state.opportunities)})")
+    
+    for opp in st.session_state.opportunities[:display_count]:
+        display_opportunity_card(opp)
+    
+    # View all button
+    if len(st.session_state.opportunities) > 10:
+        if st.button("View All Opportunities", use_container_width=True):
+            st.session_state.page = "browse"
+            st.rerun()
+
+def render_browse():
+    """Render browse page with filters"""
+    st.markdown('<p class="main-header">Browse Opportunities</p>', unsafe_allow_html=True)
+    
+    if not st.session_state.opportunities:
+        st.info("No opportunities available. Please scrape sources first.")
+        return
+    
+    # Filters
+    st.markdown("### Filters")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        search_query = st.text_input("🔍 Search", placeholder="Search by title, organization...")
+    
+    with col2:
+        # Get categories from opportunities
+        categories = list(set(opp.get('category', 'Other') for opp in st.session_state.opportunities))
+        categories.sort()
+        category_filter = st.selectbox("Category", ["All"] + categories)
+    
+    with col3:
+        countries = list(set(opp.get('country', 'Global') for opp in st.session_state.opportunities))
+        countries = [c for c in countries if c and c != 'Global']  # Remove empty and Global
+        countries.sort()
+        country_filter = st.selectbox("Country", ["All"] + countries)
+    
+    with col4:
+        sort_options = ["Date Added (Newest)", "Date Added (Oldest)", "Title", "Organization", "Deadline"]
+        sort_by = st.selectbox("Sort By", sort_options)
+    
+    # Apply filters
+    filtered = st.session_state.opportunities.copy()
+    
+    if search_query:
+        search_lower = search_query.lower()
+        filtered = [opp for opp in filtered if 
+                   search_lower in opp.get('title', '').lower() or 
+                   search_lower in opp.get('organization', '').lower() or
+                   search_lower in opp.get('description', '').lower() or
+                   search_lower in opp.get('source_name', '').lower()]
+    
+    if category_filter != "All":
+        filtered = [opp for opp in filtered if opp.get('category') == category_filter]
+    
+    if country_filter != "All":
+        filtered = [opp for opp in filtered if opp.get('country') == country_filter]
+    
+    # Sort
+    if sort_by == "Date Added (Newest)":
+        filtered.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+    elif sort_by == "Date Added (Oldest)":
+        filtered.sort(key=lambda x: x.get('created_at', ''))
+    elif sort_by == "Title":
+        filtered.sort(key=lambda x: x.get('title', ''))
+    elif sort_by == "Organization":
+        filtered.sort(key=lambda x: x.get('organization', ''))
+    elif sort_by == "Deadline":
+        filtered.sort(key=lambda x: x.get('deadline', '9999-12-31'))
+    
+    st.session_state.filtered_count = len(filtered)
+    
+    # Results count
+    st.markdown(f"### Found {len(filtered)} opportunities")
+    st.markdown("---")
+    
+    # Pagination
+    page_size = 10
+    total_pages = max(1, (len(filtered) + page_size - 1) // page_size)
+    
+    if total_pages > 1:
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col1:
+            if st.button("◀ Previous") and st.session_state.current_page > 1:
+                st.session_state.current_page -= 1
+                st.rerun()
+        with col2:
+            st.write(f"Page {st.session_state.current_page} of {total_pages}")
+        with col3:
+            if st.button("Next ▶") and st.session_state.current_page < total_pages:
+                st.session_state.current_page += 1
+                st.rerun()
+    
+    # Display opportunities
+    start_idx = (st.session_state.current_page - 1) * page_size
+    end_idx = min(start_idx + page_size, len(filtered))
+    
+    for opp in filtered[start_idx:end_idx]:
+        display_opportunity_card(opp)
+
+def render_recommendations():
+    """Render AI recommendations page"""
+    st.markdown('<p class="main-header">AI-Powered Recommendations</p>', unsafe_allow_html=True)
+    
+    if not st.session_state.opportunities:
+        st.info("No opportunities available. Please scrape sources first.")
+        return
+    
+    if not st.session_state.user_profile:
+        st.warning("Please set up your profile in the sidebar to get personalized recommendations.")
+        
+        # Show recent opportunities
+        st.subheader("Recent Opportunities")
+        for opp in st.session_state.opportunities[:5]:
+            display_opportunity_card(opp)
+        return
+    
+    # Simple TF-IDF based matching
+    with st.spinner("Generating personalized recommendations..."):
+        try:
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            from sklearn.metrics.pairwise import cosine_similarity
+            
+            # Prepare texts
+            opportunities_text = []
+            for opp in st.session_state.opportunities:
+                text = f"{opp.get('title', '')} {opp.get('description', '')} {opp.get('category', '')} {opp.get('organization', '')}"
+                opportunities_text.append(text)
+            
+            # Add user profile
+            all_texts = opportunities_text + [st.session_state.user_profile]
+            
+            # Vectorize
+            vectorizer = TfidfVectorizer(max_features=5000, stop_words='english')
+            tfidf_matrix = vectorizer.fit_transform(all_texts)
+            
+            # Calculate similarities
+            user_vector = tfidf_matrix[-1]
+            opp_vectors = tfidf_matrix[:-1]
+            similarities = cosine_similarity(user_vector, opp_vectors).flatten()
+            
+            # Add scores to opportunities
+            for i, opp in enumerate(st.session_state.opportunities):
+                opp['match_score'] = float(similarities[i] if i < len(similarities) else 0)
+            
+            # Sort by match score
+            scored_opps = sorted(st.session_state.opportunities, 
+                                key=lambda x: x.get('match_score', 0), 
+                                reverse=True)
+            
+            # Display top recommendations
+            st.subheader(f"Top Recommendations for You")
+            st.caption(f"Based on: {st.session_state.user_profile[:100]}...")
+            st.markdown("---")
+            
+            for opp in scored_opps[:10]:
+                display_opportunity_card(opp)
+                
+        except Exception as e:
+            st.error(f"Error generating recommendations: {str(e)}")
+            st.info("Showing all opportunities instead")
+            
+            for opp in st.session_state.opportunities[:10]:
+                display_opportunity_card(opp)
+
+def render_dashboard():
+    """Render analytics dashboard"""
+    st.markdown('<p class="main-header">Analytics Dashboard</p>', unsafe_allow_html=True)
+    
+    stats = db_manager.get_statistics()
+    
+    # Overview metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Opportunities", stats['total_opportunities'])
+    with col2:
+        st.metric("Verified", stats['verified'], delta=f"{stats['verified']/max(stats['total_opportunities'],1)*100:.1f}%")
+    with col3:
+        st.metric("Active Sources", stats['active_sources'])
+    with col4:
+        st.metric("Categories", len(stats.get('categories', [])))
+    
+    st.markdown("---")
+    
+    # Charts
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if stats.get('categories'):
+            st.subheader("Opportunities by Category")
+            df_cat = pd.DataFrame(stats['categories'])
+            fig = px.pie(df_cat, values='COUNT(*)', names='category', title='Category Distribution')
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        if stats.get('top_countries'):
+            st.subheader("Top 10 Countries")
+            df_country = pd.DataFrame(stats['top_countries'])
+            fig = px.bar(df_country, x='country', y='COUNT(*)', title='Opportunities by Country')
+            fig.update_layout(height=400, xaxis_tickangle=-45)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Sources table
+    st.subheader("Source Performance")
+    sources = db_manager.get_all_sources()
+    if sources:
+        df_sources = pd.DataFrame(sources)
+        df_sources_display = df_sources[['name', 'category', 'country', 'opportunities_count', 'error_count', 'is_active']]
+        df_sources_display.columns = ['Name', 'Category', 'Country', 'Opportunities', 'Errors', 'Active']
+        df_sources_display['Active'] = df_sources_display['Active'].apply(lambda x: '✅' if x else '❌')
+        st.dataframe(df_sources_display, use_container_width=True, hide_index=True)
+
+def render_sources():
+    """Render source management page"""
+    st.markdown('<p class="main-header">Source Management</p>', unsafe_allow_html=True)
+    
+    # Add new source
+    with st.expander("➕ Add New Source", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            source_name = st.text_input("Source Name", placeholder="Example: African Union")
+            source_url = st.text_input("Source URL", placeholder="https://example.com/opportunities")
+        with col2:
+            source_category = st.selectbox("Category", ["Government", "Employment", "Education", "Funding", "Internship", "Volunteer", "Youth", "Other"])
+            source_country = st.selectbox("Primary Country", ["Africa"] + ["East Africa", "West Africa", "North Africa", "Southern Africa", "Central Africa"] + [
+                'Algeria', 'Angola', 'Benin', 'Botswana', 'Burkina Faso', 'Burundi',
+                'Cameroon', 'Cabo Verde', 'Central African Republic', 'Chad',
+                'Comoros', 'Congo', 'Djibouti', 'Egypt', 'Equatorial Guinea',
+                'Eritrea', 'Eswatini', 'Ethiopia', 'Gabon', 'Gambia', 'Ghana',
+                'Guinea', 'Guinea-Bissau', 'Ivory Coast', 'Kenya', 'Lesotho',
+                'Liberia', 'Libya', 'Madagascar', 'Malawi', 'Mali', 'Mauritania',
+                'Mauritius', 'Morocco', 'Mozambique', 'Namibia', 'Niger', 'Nigeria',
+                'Rwanda', 'Sao Tome and Principe', 'Senegal', 'Seychelles',
+                'Sierra Leone', 'Somalia', 'South Africa', 'South Sudan', 'Sudan',
+                'Tanzania', 'Togo', 'Tunisia', 'Uganda', 'Zambia', 'Zimbabwe'
+            ])
+        
+        if st.button("Add Source", type="primary"):
+            if source_name and source_url:
+                if db_manager.add_source(source_name, source_url, source_category, source_country):
+                    st.success(f"✅ Source '{source_name}' added successfully!")
+                    st.session_state.sources = db_manager.get_all_sources()
+                    st.rerun()
+                else:
+                    st.error("Failed to add source. It may already exist.")
+            else:
+                st.error("Please fill in all required fields.")
+    
+    # Display sources
+    st.subheader("📋 All Sources")
+    
+    sources = db_manager.get_all_sources()
+    if not sources:
+        st.info("No sources found. Add a source to get started!")
+        return
+    
+    # Search
+    search_source = st.text_input("🔍 Search Sources", placeholder="Search by name or URL...")
+    
+    if search_source:
+        sources = [s for s in sources if search_source.lower() in s['name'].lower() or search_source.lower() in s['url'].lower()]
+    
+    # Create display dataframe
+    df = pd.DataFrame(sources)
+    df_display = df[['id', 'name', 'url', 'category', 'country', 'is_active', 'opportunities_count', 'last_scrape']]
+    df_display.columns = ['ID', 'Name', 'URL', 'Category', 'Country', 'Active', 'Opps', 'Last Scrape']
+    df_display['Active'] = df_display['Active'].apply(lambda x: '✅' if x else '❌')
+    
+    st.dataframe(df_display, use_container_width=True, hide_index=True)
+    
+    # Source management
+    st.markdown("---")
+    st.subheader("🔧 Manage Sources")
+    
+    source_options = [f"{s['id']} - {s['name']}" for s in sources]
+    if source_options:
+        selected = st.selectbox("Select Source", source_options)
+        if selected:
+            source_id = int(selected.split(' - ')[0])
+            source = db_manager.get_all_sources()
+            source = next((s for s in source if s['id'] == source_id), None)
+            
+            if source:
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if st.button("🔄 Toggle Status"):
+                        db_manager.toggle_source(source_id)
+                        st.success("Status updated!")
+                        st.session_state.sources = db_manager.get_all_sources()
+                        st.rerun()
+                
+                with col2:
+                    if st.button("📊 Scrape Now"):
+                        with st.spinner(f"Scraping {source['name']}..."):
+                            result = scraper.scrape_single_source(source_id)
+                            if 'error' not in result:
+                                st.success(f"Found {result['found']} opportunities, saved {result['saved']}")
+                            else:
+                                st.error(result['error'])
+                            st.rerun()
+                
+                with col3:
+                    if st.button("🗑️ Delete"):
+                        if st.warning("Are you sure you want to delete this source?"):
+                            db_manager.delete_source(source_id)
+                            st.success("Source deleted!")
+                            st.session_state.sources = db_manager.get_all_sources()
+                            st.rerun()
+
+def display_opportunity_card(opportunity: Dict):
+    """Display a single opportunity card"""
+    verified = opportunity.get('verified', False)
+    match_score = opportunity.get('match_score', 0)
+    
+    # Determine match score class
+    if match_score >= 0.7:
+        score_class = "match-high"
+        score_text = f"{int(match_score * 100)}%"
+    elif match_score >= 0.4:
+        score_class = "match-medium"
+        score_text = f"{int(match_score * 100)}%"
+    else:
+        score_class = "match-low"
+        score_text = f"{int(match_score * 100)}%" if match_score > 0 else "N/A"
+    
+    # Deadline status
+    deadline = opportunity.get('deadline', '')
+    deadline_html = ''
+    if deadline:
+        try:
+            # Try to parse date
+            if '/' in deadline or '-' in deadline:
+                from dateutil import parser
+                deadline_date = parser.parse(deadline, fuzzy=True)
+                days_until = (deadline_date - datetime.now()).days
+                if days_until < 0:
+                    deadline_html = f'<span class="deadline-warning">⚠️ Passed</span>'
+                elif days_until < 7:
+                    deadline_html = f'<span class="deadline-warning">⚠️ {days_until} days left</span>'
+                elif days_until < 30:
+                    deadline_html = f'<span class="deadline-normal">{days_until} days left</span>'
+                else:
+                    deadline_html = f'<span>{deadline}</span>'
+            else:
+                deadline_html = f'<span>{deadline}</span>'
+        except:
+            deadline_html = f'<span>{deadline}</span>'
+    
+    # Build card
+    st.markdown(f"""
+        <div class="opportunity-card">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div style="flex: 1;">
+                    <h3 style="margin: 0 0 5px 0;">{opportunity.get('title', 'Unknown Opportunity')}</h3>
+                    <div style="margin-bottom: 8px;">
+                        <span style="font-weight: 600;">{opportunity.get('organization', 'Unknown Organization')}</span>
+                        <span class="source-tag" style="margin-left: 8px;">{opportunity.get('source_name', 'Unknown')}</span>
+                        <span class="source-tag" style="margin-left: 4px;">{opportunity.get('category', 'Other')}</span>
+                        <span class="source-tag" style="margin-left: 4px;">{opportunity.get('country', 'Global')}</span>
+                    </div>
+                    <div style="margin-bottom: 8px; font-size: 0.9rem;">
+                        {deadline_html if deadline else 'No deadline specified'}
+                        {' '}<span class="{'verified-badge' if verified else 'unverified-badge'}">{'✅ Verified' if verified else '⚠️ Unverified'}</span>
+                    </div>
+                    <div style="font-size: 0.9rem; color: #666; margin-top: 8px;">
+                        {opportunity.get('description', '')[:200]}{'...' if len(opportunity.get('description', '')) > 200 else ''}
+                    </div>
+                </div>
+                <div style="text-align: right; min-width: 120px; margin-left: 20px;">
+                    <div class="match-score {score_class}">{score_text}</div>
+                    <div style="font-size: 0.8rem; color: #666;">Match Score</div>
+                    <div style="margin-top: 12px;">
+                        <a href="{opportunity.get('official_url', '#')}" target="_blank">
+                            <button style="background-color: #1a3c6e; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                                Apply Now →
+                            </button>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
