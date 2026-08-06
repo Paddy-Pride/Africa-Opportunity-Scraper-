@@ -127,10 +127,8 @@ class DatabaseManager:
             ('World Bank', 'https://www.worldbank.org/en/about/careers', 'Employment', 'Global'),
             ('African Development Bank', 'https://www.afdb.org/en/careers', 'Employment', 'Africa'),
             ('Mastercard Foundation', 'https://mastercardfoundation.org/opportunities', 'Funding', 'Africa'),
-            ('Tony Elumelu Foundation', 'https://www.tonyelumelufoundation.org', 'Entrepreneurship', 'Africa'),
             ('Google Careers', 'https://careers.google.com', 'Employment', 'Global'),
             ('Microsoft Careers', 'https://careers.microsoft.com', 'Employment', 'Global'),
-            ('East African Community', 'https://www.eac.int/opportunities', 'Government', 'East Africa'),
             ('British Council', 'https://www.britishcouncil.org/opportunities', 'Education', 'Africa'),
             ('Commonwealth', 'https://thecommonwealth.org/opportunities', 'Government', 'Commonwealth'),
         ]
@@ -241,7 +239,7 @@ class DatabaseManager:
                 opportunity.get('country', 'Africa')[:100],
                 opportunity.get('region', '')[:100],
                 opportunity.get('deadline', '')[:50],
-                opportunity.get('description', '')[:2000],
+                opportunity.get('description', '')[:1000],
                 opportunity.get('official_url', '')[:500],
                 opportunity.get('source_id'),
                 opportunity.get('source_name', ''),
@@ -276,6 +274,7 @@ class DatabaseManager:
                    description, official_url, source_name, verified, match_score,
                    scrape_timestamp, created_at
             FROM opportunities
+            WHERE title IS NOT NULL AND title != ''
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
         """, (limit, offset))
@@ -352,29 +351,23 @@ class OpportunityScraper:
         })
         self.timeout = 30
         
-        # Real opportunity keywords
-        self.opportunity_keywords = [
-            'apply now', 'apply today', 'submit application', 'application deadline',
-            'apply for', 'how to apply', 'application form', 'apply online',
-            'job opening', 'job vacancy', 'career opportunity', 'employment opportunity',
-            'internship', 'fellowship', 'scholarship', 'graduate program',
-            'trainee', 'apprentice', 'entry level', 'junior position'
+        # Keywords that indicate a real opportunity
+        self.real_opportunity_patterns = [
+            r'apply\s+now', r'apply\s+today', r'submit\s+application',
+            r'job\s+opening', r'job\s+vacancy', r'career\s+opportunity',
+            r'internship', r'fellowship', r'scholarship',
+            r'graduate\s+program', r'trainee', r'apprentice',
+            r'entry\s+level', r'junior\s+position', r'hiring',
+            r'recruitment', r'position\s+available', r'we\s+are\s+hiring'
         ]
         
-        # Navigation keywords
-        self.navigation_keywords = [
-            'login', 'sign in', 'register', 'about us', 'contact us', 
-            'privacy policy', 'terms of use', 'cookie policy', 'faq',
-            'view all', 'all jobs', 'view more', 'read more',
-            'english', 'francais', 'espanol', 'home', 'menu', 'footer',
-            'copyright', 'all rights reserved', 'beneficiaries', 'alumni'
-        ]
-        
-        # Invalid URL patterns
-        self.invalid_url_patterns = [
-            r'\.pdf$', r'\.doc$', r'\.docx$', r'\.xls$', r'\.xlsx$',
-            r'\.jpg$', r'\.png$', r'\.gif$', r'\.mp4$', r'\.mp3$',
-            r'login', r'signin', r'register', r'faq', r'privacy'
+        # Skip patterns - content to avoid
+        self.skip_patterns = [
+            r'login', r'sign\s+in', r'register', r'about\s+us',
+            r'contact\s+us', r'privacy\s+policy', r'terms\s+of\s+use',
+            r'cookie\s+policy', r'faq', r'beneficiaries', r'alumni',
+            r'copyright', r'all\s+rights\s+reserved', r'view\s+all',
+            r'read\s+more', r'learn\s+more', r'see\s+more'
         ]
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
@@ -404,46 +397,49 @@ class OpportunityScraper:
             
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Extract opportunities
-            opportunities = self._extract_real_opportunities(soup, source)
+            # Extract opportunities from the page
+            opportunities = self._extract_opportunities(soup, source)
             
-            # Add source information
+            # Clean and validate opportunities
+            cleaned_opportunities = []
             for opp in opportunities:
-                opp['source_id'] = source['id']
-                opp['source_name'] = source['name']
-                opp['scrape_timestamp'] = datetime.now().isoformat()
+                if self._validate_opportunity(opp):
+                    opp['source_id'] = source['id']
+                    opp['source_name'] = source['name']
+                    opp['scrape_timestamp'] = datetime.now().isoformat()
+                    cleaned_opportunities.append(opp)
             
-            logger.info(f"Found {len(opportunities)} opportunities from {source['name']}")
-            return opportunities, errors
+            logger.info(f"Found {len(cleaned_opportunities)} opportunities from {source['name']}")
+            return cleaned_opportunities, errors
             
         except Exception as e:
             logger.error(f"Error scraping {source['name']}: {str(e)}")
             errors += 1
             return opportunities, errors
     
-    def _extract_real_opportunities(self, soup: BeautifulSoup, source: Dict) -> List[Dict]:
-        """Extract only real opportunities"""
+    def _extract_opportunities(self, soup: BeautifulSoup, source: Dict) -> List[Dict]:
+        """Extract opportunities from the page"""
         opportunities = []
         seen_urls = set()
         
         # Find all links
-        all_links = soup.find_all('a', href=True)
+        links = soup.find_all('a', href=True)
         
-        for link in all_links:
+        for link in links:
             try:
-                text = link.get_text().strip()
+                text = link.get_text(strip=True)
                 href = link.get('href', '')
                 
-                # Skip empty or very short text
-                if not text or len(text) < 5:
+                # Skip if no text or href
+                if not text or not href:
                     continue
                 
-                # Skip if text is all uppercase navigation
-                if text.isupper() and len(text) < 20:
+                # Skip short text (likely icons or navigation)
+                if len(text) < 10:
                     continue
                 
-                # Check if this is actually an opportunity
-                if not self._is_real_opportunity(text, href):
+                # Check if this is a real opportunity
+                if not self._is_opportunity_link(text, href):
                     continue
                 
                 # Build absolute URL
@@ -451,8 +447,8 @@ class OpportunityScraper:
                 if not full_url:
                     continue
                 
-                # Skip invalid URLs
-                if self._is_invalid_url(full_url):
+                # Skip if URL looks like navigation or file
+                if self._should_skip_url(full_url):
                     continue
                 
                 # Skip duplicates
@@ -460,13 +456,15 @@ class OpportunityScraper:
                     continue
                 seen_urls.add(full_url)
                 
-                # Get better title
-                title = self._clean_title(text)
-                if not title or len(title) < 5:
+                # Clean title
+                title = self._clean_text(text)
+                if not title or len(title) < 8:
                     continue
                 
                 # Get description
-                description = self._extract_description(link, soup)
+                description = self._get_description(link, soup)
+                if description:
+                    description = self._clean_text(description)[:500]
                 
                 # Get deadline
                 deadline = self._extract_deadline(text + description)
@@ -474,7 +472,7 @@ class OpportunityScraper:
                 opportunity = {
                     'title': title[:200],
                     'official_url': full_url,
-                    'description': description[:500] if description else '',
+                    'description': description,
                     'organization': source['name'],
                     'category': self._detect_category(text + description),
                     'country': self._detect_country(text + description + source.get('country', '')),
@@ -488,40 +486,46 @@ class OpportunityScraper:
                 logger.debug(f"Error processing link: {str(e)}")
                 continue
         
-        # Filter and limit results
-        opportunities = self._filter_opportunities(opportunities)
+        # Remove duplicates by title similarity (keep first occurrence)
+        seen_titles = set()
+        unique_opportunities = []
+        for opp in opportunities:
+            title_lower = opp.get('title', '').lower()
+            if title_lower and title_lower not in seen_titles:
+                seen_titles.add(title_lower)
+                unique_opportunities.append(opp)
         
-        return opportunities[:30]
+        return unique_opportunities[:30]  # Limit to 30 per source
     
-    def _is_real_opportunity(self, text: str, href: str) -> bool:
-        """Check if this is a real opportunity link"""
+    def _is_opportunity_link(self, text: str, href: str) -> bool:
+        """Check if link text or href indicates a real opportunity"""
         text_lower = text.lower()
         href_lower = href.lower()
         
-        # Must contain at least one opportunity keyword
-        has_opportunity_keyword = any(kw in text_lower for kw in self.opportunity_keywords) or \
-                                 any(kw in href_lower for kw in self.opportunity_keywords)
+        # Check against real opportunity patterns
+        for pattern in self.real_opportunity_patterns:
+            if re.search(pattern, text_lower) or re.search(pattern, href_lower):
+                # Make sure it's not a skip pattern
+                for skip_pattern in self.skip_patterns:
+                    if re.search(skip_pattern, text_lower) or re.search(skip_pattern, href_lower):
+                        return False
+                return True
         
-        if not has_opportunity_keyword:
-            return False
-        
-        # Must NOT contain navigation keywords
-        has_navigation = any(kw in text_lower for kw in self.navigation_keywords)
-        if has_navigation:
-            return False
-        
-        # Must have reasonable length
-        if len(text.split()) < 2 and not any(kw in text_lower for kw in ['apply', 'job', 'intern']):
-            return False
-        
-        return True
+        return False
     
-    def _is_invalid_url(self, url: str) -> bool:
-        """Check if URL is invalid"""
+    def _should_skip_url(self, url: str) -> bool:
+        """Check if URL should be skipped"""
         url_lower = url.lower()
         
-        for pattern in self.invalid_url_patterns:
-            if re.search(pattern, url_lower):
+        # Skip file extensions
+        if re.search(r'\.(pdf|doc|docx|xls|xlsx|jpg|png|gif|mp4|mp3)$', url_lower):
+            return True
+        
+        # Skip known navigation paths
+        skip_paths = ['login', 'signin', 'register', 'faq', 'privacy', 'terms', 
+                     'about', 'contact', 'careers?', 'joblist', 'viewall']
+        for path in skip_paths:
+            if path in url_lower:
                 return True
         
         return False
@@ -533,7 +537,7 @@ class OpportunityScraper:
         
         href = href.strip()
         
-        # Skip javascript and mailto links
+        # Skip javascript and mailto
         if href.startswith('javascript:') or href.startswith('mailto:'):
             return None
         
@@ -541,7 +545,6 @@ class OpportunityScraper:
         if href.startswith('#'):
             return None
         
-        # Build absolute URL
         try:
             if href.startswith('/'):
                 parsed = urlparse(base_url)
@@ -553,110 +556,91 @@ class OpportunityScraper:
         except Exception:
             return None
     
-    def _clean_title(self, text: str) -> str:
-        """Clean and normalize title"""
-        # Remove extra whitespace
+    def _clean_text(self, text: str) -> str:
+        """Clean and normalize text"""
+        if not text:
+            return ''
+        
+        # Remove extra whitespace and newlines
         text = ' '.join(text.split())
         
-        # Remove common navigation text
-        navigation_clean = [
-            'apply now', 'apply today', 'click here', 'read more', 
-            'view more', 'learn more', 'see more'
-        ]
-        
-        for nav in navigation_clean:
-            if text.lower().startswith(nav):
-                text = text[len(nav):].strip()
-            if text.lower().endswith(nav):
-                text = text[:-len(nav)].strip()
-        
-        # Remove common suffixes
-        suffixes = ['|', '-', '»', '›', '→']
-        for suffix in suffixes:
-            if suffix in text:
-                text = text.split(suffix)[0].strip()
+        # Remove common prefixes/suffixes
+        prefixes = ['Apply Now', 'Apply Today', 'Click Here', 'Read More', 'View More', 'Learn More']
+        for prefix in prefixes:
+            if text.lower().startswith(prefix.lower()):
+                text = text[len(prefix):].strip()
         
         return text
     
-    def _extract_description(self, link, soup: BeautifulSoup) -> str:
+    def _get_description(self, link, soup: BeautifulSoup) -> str:
         """Extract description from surrounding context"""
         description = ""
         
-        # Check parent element
+        # Check parent
         parent = link.parent
         if parent:
-            # Look for description in parent siblings
+            # Check next sibling
             sibling = parent.find_next_sibling(['p', 'div'])
             if sibling:
-                desc_text = sibling.get_text().strip()
+                desc_text = sibling.get_text(strip=True)
                 if len(desc_text) > 20:
                     description = desc_text
             
-            # If no description found, check parent text without the link text
+            # Check parent text without link
             if not description:
-                parent_text = parent.get_text().strip()
-                link_text = link.get_text().strip()
+                parent_text = parent.get_text(strip=True)
+                link_text = link.get_text(strip=True)
                 if parent_text and link_text:
                     desc_text = parent_text.replace(link_text, '').strip()
                     if len(desc_text) > 20:
                         description = desc_text
         
-        # If still no description, try finding nearby paragraph
+        # Check previous paragraph
         if not description:
             para = link.find_previous('p')
             if para:
-                desc_text = para.get_text().strip()
+                desc_text = para.get_text(strip=True)
                 if len(desc_text) > 30:
                     description = desc_text
         
-        # Clean description
-        if description:
-            # Remove excessive whitespace
-            description = ' '.join(description.split())
-            # Remove common navigation text
-            for nav in ['read more', 'learn more', 'view more', 'click here']:
-                description = description.replace(nav, '')
-            description = ' '.join(description.split())
-        
         return description
     
-    def _filter_opportunities(self, opportunities: List[Dict]) -> List[Dict]:
-        """Filter out low-quality opportunities"""
-        filtered = []
+    def _validate_opportunity(self, opportunity: Dict) -> bool:
+        """Validate opportunity data"""
+        title = opportunity.get('title', '')
+        url = opportunity.get('official_url', '')
         
-        for opp in opportunities:
-            title = opp.get('title', '')
-            
-            # Skip if title is too short
-            if len(title) < 8:
-                continue
-            
-            # Skip if title is all uppercase (likely a category heading)
-            if title.isupper() and len(title) < 30:
-                continue
-            
-            # Skip if title contains only common words
-            common_words = ['home', 'about', 'contact', 'careers', 'jobs', 'apply']
-            if all(word in title.lower() for word in common_words[:2]):
-                continue
-            
-            filtered.append(opp)
+        # Must have title and URL
+        if not title or not url:
+            return False
         
-        return filtered
+        # Title must be reasonable length
+        if len(title) < 8 or len(title) > 200:
+            return False
+        
+        # Must not be generic navigation
+        skip_phrases = ['home', 'about', 'contact', 'careers', 'jobs', 'apply']
+        if any(phrase in title.lower() for phrase in skip_phrases) and len(title) < 20:
+            return False
+        
+        # URL must be valid
+        if not url.startswith(('http://', 'https://')):
+            return False
+        
+        return True
     
     def _detect_category(self, text: str) -> str:
         """Detect opportunity category"""
         text_lower = text.lower()
         
         categories = {
-            'Internship': ['intern', 'internship', 'trainee', 'training'],
-            'Scholarship': ['scholarship', 'scholar', 'research', 'academic'],
-            'Fellowship': ['fellow', 'fellowship', 'leadership'],
-            'Employment': ['job', 'career', 'employment', 'position', 'vacancy', 'hiring', 'recruitment'],
-            'Volunteer': ['volunteer', 'voluntary', 'community'],
-            'Grant': ['grant', 'funding', 'research grant'],
-            'Entrepreneurship': ['entrepreneur', 'startup', 'business', 'venture'],
-            'Youth': ['youth', 'young', 'graduate']
+            'Internship': ['intern', 'internship', 'trainee'],
+            'Scholarship': ['scholarship', 'scholar', 'academic'],
+            'Fellowship': ['fellow', 'fellowship'],
+            'Employment': ['job', 'career', 'employment', 'position', 'vacancy', 'hiring'],
+            'Volunteer': ['volunteer', 'voluntary'],
+            'Grant': ['grant', 'funding'],
+            'Entrepreneurship': ['entrepreneur', 'startup', 'business']
         }
         
         for category, keywords in categories.items():
@@ -698,18 +682,15 @@ class OpportunityScraper:
         text_lower = text.lower()
         
         regions = {
-            'East Africa': ['kenya', 'tanzania', 'uganda', 'rwanda', 'ethiopia', 'somalia'],
-            'West Africa': ['nigeria', 'ghana', 'ivory coast', 'senegal', 'mali', 'guinea'],
-            'Southern Africa': ['south africa', 'botswana', 'zambia', 'zimbabwe', 'mozambique'],
-            'North Africa': ['egypt', 'algeria', 'morocco', 'tunisia', 'libya']
+            'East Africa': ['kenya', 'tanzania', 'uganda', 'rwanda', 'ethiopia'],
+            'West Africa': ['nigeria', 'ghana', 'ivory coast', 'senegal', 'mali'],
+            'Southern Africa': ['south africa', 'botswana', 'zambia', 'zimbabwe'],
+            'North Africa': ['egypt', 'algeria', 'morocco', 'tunisia']
         }
         
         for region, countries in regions.items():
             if any(country in text_lower for country in countries):
                 return region
-        
-        if 'africa' in text_lower:
-            return 'Africa'
         
         return ''
     
@@ -722,14 +703,14 @@ class OpportunityScraper:
             r'deadline[:\s]+([^.]*?)(?:\.|$)',
             r'closing date[:\s]+([^.]*?)(?:\.|$)',
             r'apply by[:\s]+([^.]*?)(?:\.|$)',
-            r'application deadline[:\s]+([^.]*?)(?:\.|$)',
-            r'due[:\s]+([^.]*?)(?:\.|$)'
+            r'application deadline[:\s]+([^.]*?)(?:\.|$)'
         ]
         
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 deadline = match.group(1).strip()
+                # Try to extract date
                 date_match = re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', deadline)
                 if date_match:
                     return date_match.group(0)
