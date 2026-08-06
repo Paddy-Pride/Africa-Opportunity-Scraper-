@@ -7,6 +7,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Optional
+import html
 
 from scraper import DatabaseManager, OpportunityScraper
 
@@ -40,6 +41,10 @@ st.markdown("""
             border-left: 5px solid #1a3c6e;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
+        .opportunity-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            transition: all 0.3s ease;
+        }
         .metric-card {
             background-color: white;
             border-radius: 10px;
@@ -55,9 +60,19 @@ st.markdown("""
             border-radius: 8px;
             padding: 10px;
         }
+        .stButton > button:hover {
+            background-color: #2a5c8e;
+        }
         .verified-badge {
             background-color: #28a745;
             color: white;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+        }
+        .unverified-badge {
+            background-color: #ffc107;
+            color: #856404;
             padding: 3px 10px;
             border-radius: 20px;
             font-size: 0.8rem;
@@ -68,6 +83,56 @@ st.markdown("""
             border-radius: 15px;
             font-size: 0.75rem;
             color: #495057;
+            display: inline-block;
+            margin-right: 4px;
+        }
+        .apply-button {
+            background-color: #1a3c6e;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .apply-button:hover {
+            background-color: #2a5c8e;
+            color: white;
+            text-decoration: none;
+        }
+        .opportunity-title {
+            margin: 0 0 5px 0;
+            font-size: 1.2rem;
+        }
+        .opportunity-org {
+            font-weight: 600;
+        }
+        .opportunity-meta {
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+        .opportunity-desc {
+            font-size: 0.9rem;
+            color: #666;
+            margin-top: 8px;
+        }
+        .deadline-text {
+            margin-right: 8px;
+        }
+        .card-right {
+            text-align: right;
+            min-width: 120px;
+            margin-left: 20px;
+        }
+        .card-flex {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        .card-left {
+            flex: 1;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -371,40 +436,55 @@ def render_sources():
                     st.rerun()
 
 def display_opportunity_card(opportunity: Dict):
-    """Display a single opportunity card"""
+    """Display a single opportunity card using st.markdown with proper escaping"""
+    
+    # Escape all user-provided content to prevent HTML injection
+    title = html.escape(str(opportunity.get('title', 'Unknown Opportunity')))
+    organization = html.escape(str(opportunity.get('organization', 'Unknown')))
+    source_name = html.escape(str(opportunity.get('source_name', 'Unknown')))
+    category = html.escape(str(opportunity.get('category', 'Other')))
+    country = html.escape(str(opportunity.get('country', 'Africa')))
+    deadline = html.escape(str(opportunity.get('deadline', 'No deadline')))
+    description = html.escape(str(opportunity.get('description', '')))
+    official_url = html.escape(str(opportunity.get('official_url', '#')))
     verified = opportunity.get('verified', False)
     
-    st.markdown(f"""
-        <div class="opportunity-card">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                <div style="flex: 1;">
-                    <h3 style="margin: 0 0 5px 0;">{opportunity.get('title', 'Unknown Opportunity')}</h3>
-                    <div style="margin-bottom: 8px;">
-                        <span style="font-weight: 600;">{opportunity.get('organization', 'Unknown')}</span>
-                        <span class="source-tag" style="margin-left: 8px;">{opportunity.get('source_name', 'Unknown')}</span>
-                        <span class="source-tag" style="margin-left: 4px;">{opportunity.get('category', 'Other')}</span>
-                        <span class="source-tag" style="margin-left: 4px;">{opportunity.get('country', 'Africa')}</span>
-                    </div>
-                    <div style="margin-bottom: 8px; font-size: 0.9rem;">
-                        {opportunity.get('deadline', 'No deadline')}
-                        {' '}<span class="verified-badge">{'Verified' if verified else 'Unverified'}</span>
-                    </div>
-                    <div style="font-size: 0.9rem; color: #666; margin-top: 8px;">
-                        {opportunity.get('description', '')[:200]}{'...' if len(opportunity.get('description', '')) > 200 else ''}
-                    </div>
+    # Truncate description
+    if len(description) > 200:
+        description = description[:200] + '...'
+    
+    # Build verification badge
+    badge_class = "verified-badge" if verified else "unverified-badge"
+    badge_text = "Verified" if verified else "Unverified"
+    
+    # Build the card HTML with escaped content
+    card_html = f"""
+    <div class="opportunity-card">
+        <div class="card-flex">
+            <div class="card-left">
+                <h3 class="opportunity-title">{title}</h3>
+                <div class="opportunity-meta">
+                    <span class="opportunity-org">{organization}</span>
+                    <span class="source-tag">{source_name}</span>
+                    <span class="source-tag">{category}</span>
+                    <span class="source-tag">{country}</span>
                 </div>
-                <div style="text-align: right; min-width: 120px; margin-left: 20px;">
-                    <div style="margin-top: 12px;">
-                        <a href="{opportunity.get('official_url', '#')}" target="_blank">
-                            <button style="background-color: #1a3c6e; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;">
-                                Apply Now
-                            </button>
-                        </a>
-                    </div>
+                <div class="opportunity-meta">
+                    <span class="deadline-text">{deadline}</span>
+                    <span class="{badge_class}">{badge_text}</span>
+                </div>
+                <div class="opportunity-desc">{description}</div>
+            </div>
+            <div class="card-right">
+                <div style="margin-top: 12px;">
+                    <a href="{official_url}" target="_blank" class="apply-button">Apply Now</a>
                 </div>
             </div>
         </div>
-    """, unsafe_allow_html=True)
+    </div>
+    """
+    
+    st.markdown(card_html, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
